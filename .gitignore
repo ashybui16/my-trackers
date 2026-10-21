@@ -1,0 +1,67 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+eggs/
+*.egg
+pip-wheel-metadata/
+
+# Jupyter and local tooling
+.ipynb_checkpoints/
+.python-version
+.env
+.env.*
+!.env.example
+
+# Editors and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local datasets, model checkpoints, and experiment output
+/data/
+/runs/
+/weights/
+/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+*.safetensors
+*.npz
+*.sqlite3
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Temporary files and logs
+*.tmp
+*.tmp.*
+*.log
+
+# Local checkout of the third-party Ultralytics fork
+/third-party/my-ultralytics/
