@@ -1,0 +1,6 @@
+numpy==1.26.4
+opencv-python==4.11.0.86
+lap==0.5.12
+scipy==1.15.3
+optuna>=4,<5
+trackeval @ git+https://github.com/JonathonLuiten/TrackEval.git@12c8791b303e0a0b50f753af204249e622d0281a
