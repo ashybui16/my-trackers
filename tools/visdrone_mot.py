@@ -46,7 +46,7 @@ SCHEMA_VERSION = 1
 NUM_CLASSES = 10
 YOLO_CLASSES = tuple(range(NUM_CLASSES))
 VISDRONE_CLASSES = tuple(range(1, NUM_CLASSES + 1))
-GMC_METHODS = ("sparseOptFlow", "orb", "sift", "ecc", "none")
+GMC_METHODS = ("sparseOptFlow",)
 TRACK_BUFFER_VALUES = (15, 30, 45, 60, 90)
 HOTA_THRESHOLDS = tuple(round(x, 2) for x in np.arange(0.05, 1.0, 0.05))
 INFERENCE_SETTINGS = {"imgsz": 640, "conf": 0.01, "max_det": 300, "classes": list(YOLO_CLASSES)}
@@ -1399,7 +1399,8 @@ def tune_val(
     cache_metadata = load_cache_metadata(cache_dir)
     tuning_dir = output_root / "tuning"
     tuning_dir.mkdir(parents=True, exist_ok=True)
-    study_path = tuning_dir / "study.sqlite3"
+    # Keep the fixed-GMC search separate from studies created with other GMC choices.
+    study_path = tuning_dir / "study_sparse_optflow.sqlite3"
     if overwrite and study_path.exists():
         study_path.unlink()
     storage = f"sqlite:///{study_path.resolve()}"
@@ -1423,7 +1424,7 @@ def tune_val(
                 "gmc_method": "sparseOptFlow",
             }
         )
-    trial_root = tuning_dir / "trials"
+    trial_root = tuning_dir / "trials_sparse_optflow"
     trial_root.mkdir(parents=True, exist_ok=True)
 
     def objective(trial: Any) -> float:

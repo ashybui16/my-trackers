@@ -158,6 +158,8 @@ def test_search_space_is_constrained() -> None:
             return {"track_high_thresh": 0.30, "track_low_thresh": 0.10, "new_track_thresh": 0.40, "match_thresh": 0.80}[name]
 
         def suggest_categorical(self, name, choices):
+            if name == "gmc_method":
+                assert choices == ["sparseOptFlow"]
             return choices[0]
 
     params = suggest_tracker_params(FakeTrial())
@@ -166,6 +168,7 @@ def test_search_space_is_constrained() -> None:
     assert params["track_high_thresh"] <= params["new_track_thresh"] <= 0.80
     assert params["track_buffer"] in (15, 30, 45, 60, 90)
     assert 0.60 <= params["match_thresh"] <= 0.95
+    assert params["gmc_method"] == "sparseOptFlow"
 
 
 def test_tracker_reset_is_called_at_sequence_boundary() -> None:
