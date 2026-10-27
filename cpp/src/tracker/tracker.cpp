@@ -2,9 +2,7 @@
 
 #include "mot_tracker/association.hpp"
 
-#include <algorithm>
 #include <stdexcept>
-#include <unordered_set>
 
 namespace mot_tracker {
 
@@ -222,39 +220,19 @@ void BoTSORT::mergePools(const std::vector<TrackPtr>& activated,
     tracked = jointTracks(tracked, activated);
     tracked = jointTracks(tracked, refound);
     std::vector<TrackPtr> lost = subtractTracks(lost_tracks_, tracked);
-    lost = jointTracks(lost, newly_lost);
-    lost = subtractTracks(lost, newly_removed);
+    lost.insert(lost.end(), newly_lost.begin(), newly_lost.end());
+    // Dọn theo lịch sử frame trước: track vừa REMOVED còn được thử ghép ở frame sau.
+    lost = subtractTracks(lost, removed_tracks_);
 
     DuplicateResult duplicate = removeDuplicateTracks(tracked, lost);
-    for (const auto& track : duplicate.removed) {
-        track->markRemoved();
-    }
-    tracked.clear();
-    for (const auto& track : duplicate.tracked) {
-        if (track->state() == TrackState::Tracked) {
-            tracked.push_back(track);
-        }
-    }
-    lost.clear();
-    for (const auto& track : duplicate.lost) {
-        if (track->state() == TrackState::Lost) {
-            lost.push_back(track);
-        }
-    }
-    tracked_tracks_ = std::move(tracked);
-    lost_tracks_ = std::move(lost);
+    tracked_tracks_ = std::move(duplicate.tracked);
+    lost_tracks_ = std::move(duplicate.lost);
 
-    // Lưu track đã loại một lần để không nhân đôi kết quả dọn dẹp.
-    auto add_removed = [this](const TrackPtr& candidate) {
-        if (std::find(removed_tracks_.begin(), removed_tracks_.end(), candidate) == removed_tracks_.end()) {
-            removed_tracks_.push_back(candidate);
-        }
-    };
-    for (const auto& track : newly_removed) {
-        add_removed(track);
-    }
-    for (const auto& track : duplicate.removed) {
-        add_removed(track);
+    // Append rồi chỉ giữ 1000 phần tử gần nhất, cùng thứ tự với Ultralytics.
+    removed_tracks_.insert(removed_tracks_.end(), newly_removed.begin(), newly_removed.end());
+    constexpr std::size_t removed_buffer = 1000;
+    if (removed_tracks_.size() > removed_buffer) {
+        removed_tracks_.erase(removed_tracks_.begin(), removed_tracks_.end() - removed_buffer);
     }
 }
 

@@ -1,14 +1,11 @@
 #include "mot_tracker/track.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
 namespace mot_tracker {
 
 namespace {
-
-constexpr double kMinimumTrackSize = 1e-6;
 
 bool finiteMatrix(const cv::Mat& matrix) {
     // Quét toàn bộ phần tử để loại NaN và vô cực trước khi dùng trạng thái.
@@ -25,43 +22,6 @@ bool finiteMatrix(const cv::Mat& matrix) {
     return true;
 }
 
-bool validState(const cv::Mat& mean, const cv::Mat& covariance) {
-    // Chấp nhận trạng thái Kalman đúng kích thước, hữu hạn và có hộp đủ lớn.
-    return mean.rows == 8 && mean.cols == 1 && mean.type() == CV_64F &&
-           covariance.rows == 8 && covariance.cols == 8 && covariance.type() == CV_64F &&
-           finiteMatrix(mean) && finiteMatrix(covariance) &&
-           mean.at<double>(2, 0) > kMinimumTrackSize &&
-           mean.at<double>(3, 0) > kMinimumTrackSize;
-}
-
-void repairState(cv::Mat& mean, cv::Mat& covariance, const std::array<double, 4>& fallback) {
-    // Thay phần trạng thái hỏng bằng hộp hợp lệ gần nhất và vận tốc 0.
-    if (mean.rows != 8 || mean.cols != 1 || mean.type() != CV_64F) {
-        mean = cv::Mat::zeros(8, 1, CV_64F);
-    }
-    if (covariance.rows != 8 || covariance.cols != 8 || covariance.type() != CV_64F ||
-        !finiteMatrix(covariance)) {
-        covariance = cv::Mat::eye(8, 8, CV_64F);
-    }
-    for (int index = 0; index < 4; ++index) {
-        double& value = mean.at<double>(index, 0);
-        if (!std::isfinite(value)) {
-            value = fallback[static_cast<std::size_t>(index)];
-        }
-    }
-    if (mean.at<double>(2, 0) <= kMinimumTrackSize) {
-        mean.at<double>(2, 0) = std::max(fallback[2], kMinimumTrackSize);
-    }
-    if (mean.at<double>(3, 0) <= kMinimumTrackSize) {
-        mean.at<double>(3, 0) = std::max(fallback[3], kMinimumTrackSize);
-    }
-    for (int index = 4; index < 8; ++index) {
-        if (!std::isfinite(mean.at<double>(index, 0))) {
-            mean.at<double>(index, 0) = 0.0;
-        }
-    }
-}
-
 std::array<double, 4> stateXywh(const cv::Mat& mean) {
     // Trích bốn thành phần hộp từ vector trạng thái 8 chiều.
     std::array<double, 4> result{};
@@ -75,31 +35,17 @@ std::array<double, 4> stateXywh(const cv::Mat& mean) {
 
 Track::Track(const Detection& detection, int detection_index)
     : initial_bbox_(detection.bbox_xyxy),
-      last_valid_xywh_(xyxyToXywh(detection.bbox_xyxy)),
       score_(detection.score),
       class_id_(detection.class_id),
       detection_index_(detection_index) {}
 
 BBox Track::bbox() const {
-    // Ưu tiên hộp Kalman; nếu hỏng thì trả hộp hợp lệ gần nhất.
-    if (mean_.empty()) {
-        return initial_bbox_;
-    }
-    std::array<double, 4> state_box{};
-    for (int index = 0; index < 4; ++index) {
-        state_box[static_cast<std::size_t>(index)] = mean_.at<double>(index, 0);
-    }
-    if (!std::isfinite(state_box[0]) || !std::isfinite(state_box[1]) ||
-        !std::isfinite(state_box[2]) || !std::isfinite(state_box[3]) ||
-        state_box[2] <= kMinimumTrackSize || state_box[3] <= kMinimumTrackSize) {
-        return xywhToXyxy(last_valid_xywh_);
-    }
-    return xywhToXyxy(state_box);
+    // Giữ kích thước có dấu sau GMC, cùng cách đổi state của Ultralytics.
+    return mean_.empty() ? initial_bbox_ : xywhToXyxy(stateXywh(mean_));
 }
 
 std::array<double, 4> Track::xywh() const {
-    // Dùng cùng logic dự phòng của bbox() rồi đổi sang dạng tâm.
-    return xyxyToXywh(bbox());
+    return mean_.empty() ? xyxyToXywh(initial_bbox_) : stateXywh(mean_);
 }
 
 void Track::activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id) {
@@ -112,7 +58,6 @@ void Track::activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id
     const auto state = kalman_filter.initiate(xyxyToXywh(initial_bbox_));
     mean_ = state.mean;
     covariance_ = state.covariance;
-    last_valid_xywh_ = stateXywh(mean_);
     tracklet_len_ = 0;
     state_ = TrackState::Tracked;
     is_activated_ = frame_id == 1;
@@ -121,7 +66,7 @@ void Track::activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id
 }
 
 void Track::predict() {
-    // Dự đoán frame kế; nếu trạng thái mới hỏng thì sửa từ hộp cuối cùng.
+    // Dự đoán frame kế và giữ nguyên kích thước có dấu như Ultralytics.
     if (kalman_filter_ == nullptr || mean_.empty() || covariance_.empty()) {
         return;
     }
@@ -133,10 +78,6 @@ void Track::predict() {
     const KalmanState predicted = kalman_filter_->predict(state);
     mean_ = predicted.mean;
     covariance_ = predicted.covariance;
-    if (!validState(mean_, covariance_)) {
-        repairState(mean_, covariance_, last_valid_xywh_);
-    }
-    last_valid_xywh_ = stateXywh(mean_);
 }
 
 void Track::applyWarp(const cv::Mat& warp) {
@@ -153,12 +94,12 @@ void Track::applyWarp(const cv::Mat& warp) {
         covariance_ = previous_covariance;
         return;
     }
-    if (!validState(mean_, covariance_)) {
+    if (!finiteMatrix(mean_) || !finiteMatrix(covariance_)) {
         mean_ = previous_mean;
         covariance_ = previous_covariance;
         return;
     }
-    last_valid_xywh_ = stateXywh(mean_);
+    // Giữ nguyên kết quả hữu hạn, kể cả khi phép quay làm w/h âm.
 }
 
 void Track::update(const Track& detection_track, int frame_id) {
@@ -166,14 +107,11 @@ void Track::update(const Track& detection_track, int frame_id) {
     if (kalman_filter_ == nullptr || mean_.empty() || covariance_.empty()) {
         throw std::runtime_error("track must be activated before update");
     }
-    repairState(mean_, covariance_, last_valid_xywh_);
     const std::array<double, 4> measurement = xyxyToXywh(detection_track.bbox());
     const KalmanState updated = kalman_filter_->update(
         KalmanState{mean_.clone(), covariance_.clone()}, measurement);
     mean_ = updated.mean;
     covariance_ = updated.covariance;
-    repairState(mean_, covariance_, measurement);
-    last_valid_xywh_ = stateXywh(mean_);
     frame_id_ = frame_id;
     ++tracklet_len_;
     state_ = TrackState::Tracked;

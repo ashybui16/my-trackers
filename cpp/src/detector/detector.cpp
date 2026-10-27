@@ -1,6 +1,6 @@
-#include "mot_inference/detector.hpp"
+#include "mot_detector/detector.hpp"
 
-#include "mot_tracker/geometry.hpp"
+#include "detector/detector_postprocess.hpp"
 
 #include <NvInfer.h>
 #include <cuda_fp16.h>
@@ -9,12 +9,10 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -201,57 +199,6 @@ std::vector<float> preprocess(const cv::Mat& frame,
         }
     }
     return chw;
-}
-
-// Bỏ phần đệm letterbox và đổi tỉ lệ hộp về kích thước frame ban đầu.
-mot_tracker::BBox undoLetterbox(const std::array<float, 4>& box, const LetterboxInfo& info) {
-    // Trừ đệm ở hai trục rồi chia tỉ lệ co ảnh.
-    mot_tracker::BBox result{
-        (static_cast<double>(box[0]) - info.pad_x) / info.scale,
-        (static_cast<double>(box[1]) - info.pad_y) / info.scale,
-        (static_cast<double>(box[2]) - info.pad_x) / info.scale,
-        (static_cast<double>(box[3]) - info.pad_y) / info.scale,
-    };
-    return result;
-}
-
-// Một hộp ứng viên trước khi loại bỏ các hộp chồng lấp.
-struct Candidate {
-    mot_tracker::BBox bbox{};
-    double score{0.0};
-    int class_id{0};
-    int source_index{0};
-};
-
-// Giữ tối đa max_det ứng viên điểm cao, loại hộp cùng lớp trùng IoU.
-std::vector<mot_tracker::Detection> nms(std::vector<Candidate> candidates,
-                                        double iou_threshold,
-                                        int max_det) {
-    // Sắp theo điểm giảm dần, rồi triệt hộp cùng lớp có IoU vượt ngưỡng.
-    std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& first, const Candidate& second) {
-        if (first.score != second.score) {
-            return first.score > second.score;
-        }
-        return first.source_index < second.source_index;
-    });
-    std::vector<bool> suppressed(candidates.size(), false);
-    std::vector<mot_tracker::Detection> result;
-    result.reserve(std::min<std::size_t>(candidates.size(), static_cast<std::size_t>(max_det)));
-    for (std::size_t index = 0; index < candidates.size() && static_cast<int>(result.size()) < max_det; ++index) {
-        if (suppressed[index]) {
-            continue;
-        }
-        result.emplace_back(candidates[index].bbox,
-                            candidates[index].score,
-                            candidates[index].class_id);
-        for (std::size_t other = index + 1; other < candidates.size(); ++other) {
-            if (!suppressed[other] && candidates[other].class_id == candidates[index].class_id &&
-                mot_tracker::iou(candidates[index].bbox, candidates[other].bbox) > iou_threshold) {
-                suppressed[other] = true;
-            }
-        }
-    }
-    return result;
 }
 
 }  // namespace
@@ -501,66 +448,13 @@ std::vector<mot_tracker::Detection> TensorRTDetector::infer(const cv::Mat& frame
     if (dims.nbDims != 3 || dims.d[0] != 1) {
         throw std::runtime_error("output binding '" + impl_->output_binding_name + "' must be rank-3 batch-1 [1,14,N], [1,N,14], or [1,N,6], got " + dimsString(dims));
     }
-    // Engine có thể xuất [1, số đặc trưng, N], [1, N, số đặc trưng] hoặc [1, N, 6].
-    const int features_first = dims.d[1];
-    const int candidates_first = dims.d[2];
-    const bool raw_feature_first = features_first == 4 + config_.class_count;
-    const bool raw_candidate_first = candidates_first == 4 + config_.class_count;
-    const bool postprocessed = dims.d[2] == 6 && !raw_feature_first;
-    if (!raw_feature_first && !raw_candidate_first && !postprocessed) {
-        throw std::runtime_error("output binding '" + impl_->output_binding_name + "' has unsupported shape " +
-                                 dimsString(dims) + "; expected [1," + std::to_string(4 + config_.class_count) + ",N], [1,N," +
-                                 std::to_string(4 + config_.class_count) + "], or [1,N,6]");
-    }
-
-    // Đọc một giá trị bất kể thứ tự chiều feature/candidate của tensor.
-    auto at = [&output, &dims](int candidate, int feature, bool feature_first) -> float {
-        const std::size_t offset = feature_first
-                                        ? static_cast<std::size_t>(feature) * dims.d[2] + candidate
-                                        : static_cast<std::size_t>(candidate) * dims.d[2] + feature;
-        return output[offset];
-    };
-    // Đọc từng ứng viên, chọn lớp/điểm, bỏ letterbox và lọc hộp không hợp lệ.
-    std::vector<Candidate> candidates;
-    const int candidate_count = raw_feature_first ? dims.d[2] : dims.d[1];
-    candidates.reserve(static_cast<std::size_t>(candidate_count));
-    for (int candidate = 0; candidate < candidate_count; ++candidate) {
-        std::array<float, 4> input_box{};
-        double score = 0.0;
-        int class_id = -1;
-        if (postprocessed) {
-            input_box = {at(candidate, 0, false), at(candidate, 1, false),
-                         at(candidate, 2, false), at(candidate, 3, false)};
-            score = at(candidate, 4, false);
-            class_id = static_cast<int>(std::lround(at(candidate, 5, false)));
-        } else {
-            const bool feature_first = raw_feature_first;
-            const float center_x = at(candidate, 0, feature_first);
-            const float center_y = at(candidate, 1, feature_first);
-            const float width = at(candidate, 2, feature_first);
-            const float height = at(candidate, 3, feature_first);
-            input_box = {center_x - width / 2.0F, center_y - height / 2.0F,
-                         center_x + width / 2.0F, center_y + height / 2.0F};
-            for (int class_index = 0; class_index < config_.class_count; ++class_index) {
-                const float class_score = at(candidate, 4 + class_index, feature_first);
-                if (std::isfinite(class_score) && (class_id < 0 || class_score > score)) {
-                    score = class_score;
-                    class_id = class_index;
-                }
-            }
-        }
-        if (!std::isfinite(score) || score < config_.conf_threshold || class_id < 0 || class_id >= config_.class_count) {
-            continue;
-        }
-        const mot_tracker::BBox box = undoLetterbox(input_box, letterbox);
-        try {
-            mot_tracker::validateBBox(box);
-        } catch (const std::invalid_argument&) {
-            continue;
-        }
-        candidates.push_back({box, score, class_id, candidate});
-    }
-    return nms(std::move(candidates), config_.iou_threshold, config_.max_det);
+    detail::OutputOptions options;
+    options.class_count = config_.class_count;
+    options.conf_threshold = config_.conf_threshold;
+    options.iou_threshold = config_.iou_threshold;
+    options.max_det = config_.max_det;
+    options.transform = {letterbox.scale, letterbox.pad_x, letterbox.pad_y, frame.cols, frame.rows};
+    return detail::processOutput(output.data(), dims.d[1], dims.d[2], options);
 }
 
 }  // namespace mot_inference

@@ -10,8 +10,9 @@ namespace mot_tracker {
 
 // Đổi giữa hộp góc (x1, y1, x2, y2) và hộp tâm (cx, cy, w, h).
 std::array<double, 4> xyxyToXywh(const BBox& box);
+// Giữ nguyên w/h có dấu khi đổi state sau GMC sang góc.
 BBox xywhToXyxy(const std::array<double, 4>& box);
-// Tính tỉ lệ giao trên hợp của hai hộp; giá trị thuộc [0, 1].
+// IoU float32 với union + 1e-7 như Ultralytics; chấp nhận góc đảo sau GMC.
 double iou(const BBox& first, const BBox& second);
 // Tạo ma trận chi phí 1 - IoU cho hai nhóm hộp.
 std::vector<std::vector<double>> iouDistance(const std::vector<BBox>& first,

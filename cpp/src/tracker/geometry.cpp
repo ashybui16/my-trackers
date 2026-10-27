@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -15,32 +14,38 @@ std::array<double, 4> xyxyToXywh(const BBox& box) {
 }
 
 BBox xywhToXyxy(const std::array<double, 4>& box) {
-    // Kiểm tra kích thước rồi trải hộp tâm thành hai góc.
+    // Đổi state sang hai góc, giữ kích thước có dấu sau GMC như Ultralytics.
     for (double value : box) {
         if (!std::isfinite(value)) {
             throw std::invalid_argument("xywh must contain only finite values");
         }
-    }
-    if (box[2] <= 0.0 || box[3] <= 0.0) {
-        throw std::invalid_argument("xywh must have positive width and height");
     }
     return {box[0] - box[2] / 2.0, box[1] - box[3] / 2.0,
             box[0] + box[2] / 2.0, box[1] + box[3] / 2.0};
 }
 
 double iou(const BBox& first, const BBox& second) {
-    // Lấy diện tích giao chia diện tích hợp; hộp không giao có IoU bằng 0.
-    validateBBox(first);
-    validateBBox(second);
-    const double left = std::max(first[0], second[0]);
-    const double top = std::max(first[1], second[1]);
-    const double right = std::min(first[2], second[2]);
-    const double bottom = std::min(first[3], second[3]);
-    const double intersection = std::max(0.0, right - left) * std::max(0.0, bottom - top);
-    const double first_area = (first[2] - first[0]) * (first[3] - first[1]);
-    const double second_area = (second[2] - second[0]) * (second[3] - second[1]);
-    const double union_area = first_area + second_area - intersection;
-    return union_area > 0.0 ? intersection / union_area : 0.0;
+    // Theo matching.iou_distance -> bbox_ioa của Ultralytics: float32,
+    // chỉ chặn phần giao âm, giữ diện tích có dấu và cộng epsilon vào hợp.
+    std::array<float, 4> a{};
+    std::array<float, 4> b{};
+    for (std::size_t index = 0; index < a.size(); ++index) {
+        if (!std::isfinite(first[index]) || !std::isfinite(second[index])) {
+            throw std::invalid_argument("IoU boxes must contain only finite values");
+        }
+        a[index] = static_cast<float>(first[index]);
+        b[index] = static_cast<float>(second[index]);
+    }
+    const float left = std::max(a[0], b[0]);
+    const float top = std::max(a[1], b[1]);
+    const float right = std::min(a[2], b[2]);
+    const float bottom = std::min(a[3], b[3]);
+    const float intersection = std::max(0.0F, right - left) * std::max(0.0F, bottom - top);
+    const float first_area = (a[2] - a[0]) * (a[3] - a[1]);
+    const float second_area = (b[2] - b[0]) * (b[3] - b[1]);
+    const float union_area = second_area + first_area - intersection;
+    constexpr float epsilon = 1e-7F;
+    return intersection / (union_area + epsilon);
 }
 
 std::vector<std::vector<double>> iouDistance(const std::vector<BBox>& first,
@@ -49,7 +54,7 @@ std::vector<std::vector<double>> iouDistance(const std::vector<BBox>& first,
     std::vector<std::vector<double>> result(first.size(), std::vector<double>(second.size(), 0.0));
     for (std::size_t row = 0; row < first.size(); ++row) {
         for (std::size_t column = 0; column < second.size(); ++column) {
-            result[row][column] = 1.0 - iou(first[row], second[column]);
+            result[row][column] = 1.0F - static_cast<float>(iou(first[row], second[column]));
         }
     }
     return result;
@@ -117,45 +122,16 @@ void warpXywhState(cv::Mat& mean, cv::Mat& covariance, const cv::Mat& warp) {
             throw std::invalid_argument("GMC warp must contain only finite values");
         }
     }
-    if (mean.at<double>(2, 0) <= 0.0 || mean.at<double>(3, 0) <= 0.0) {
-        throw std::invalid_argument("cannot warp a Kalman state with non-positive size");
-    }
-
-    // Tâm là một điểm, còn w/h là độ rộng của hộp song song trục.
-    // Lấy trị tuyệt đối của phép quay để kích thước sau biến đổi luôn dương.
-    const double transformed_width = std::abs(a00) * mean.at<double>(2, 0) +
-                                     std::abs(a01) * mean.at<double>(3, 0);
-    const double transformed_height = std::abs(a10) * mean.at<double>(2, 0) +
-                                      std::abs(a11) * mean.at<double>(3, 0);
-    const double scale_x = std::hypot(a00, a10);
-    const double scale_y = std::hypot(a01, a11);
-    const double size_scale = (scale_x + scale_y) * 0.5;
-    if (!std::isfinite(transformed_width) || !std::isfinite(transformed_height) ||
-        transformed_width <= 0.0 || transformed_height <= 0.0 || !std::isfinite(size_scale) ||
-        size_scale <= std::numeric_limits<double>::epsilon()) {
-        throw std::invalid_argument("GMC warp produced a non-positive Kalman size");
-    }
-
+    // Ultralytics áp cùng ma trận R lên cả bốn cặp trạng thái XYWH và vận tốc.
     for (int block = 0; block < 4; ++block) {
         transform.at<double>(2 * block, 2 * block) = a00;
         transform.at<double>(2 * block, 2 * block + 1) = a01;
         transform.at<double>(2 * block + 1, 2 * block) = a10;
         transform.at<double>(2 * block + 1, 2 * block + 1) = a11;
     }
-    // Vận tốc kích thước chỉ cần hệ số tỉ lệ dương để lần dự đoán sau không âm.
-    transform.at<double>(2, 2) = std::abs(a00);
-    transform.at<double>(2, 3) = std::abs(a01);
-    transform.at<double>(3, 2) = std::abs(a10);
-    transform.at<double>(3, 3) = std::abs(a11);
-    transform.at<double>(6, 6) = size_scale;
-    transform.at<double>(6, 7) = 0.0;
-    transform.at<double>(7, 6) = 0.0;
-    transform.at<double>(7, 7) = size_scale;
     cv::Mat transformed_mean = transform * mean;
     transformed_mean.at<double>(0, 0) += warp.at<double>(0, 2);
     transformed_mean.at<double>(1, 0) += warp.at<double>(1, 2);
-    transformed_mean.at<double>(2, 0) = transformed_width;
-    transformed_mean.at<double>(3, 0) = transformed_height;
     cv::Mat transformed_covariance = transform * covariance * transform.t();
     mean = std::move(transformed_mean);
     covariance = std::move(transformed_covariance);

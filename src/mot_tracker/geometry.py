@@ -32,30 +32,33 @@ def _boxes(value: Iterable[Iterable[float]] | np.ndarray) -> np.ndarray:
         raise ValueError("boxes must have shape (N, 4)")
     if not np.all(np.isfinite(result)):
         raise ValueError("boxes must be finite")
-    if np.any(result[:, 2] <= result[:, 0]) or np.any(result[:, 3] <= result[:, 1]):
-        raise ValueError("boxes must have positive width and height")
     return result
 
 
 def xyxy_to_xywh(box: Iterable[float]) -> np.ndarray:
     x1, y1, x2, y2 = _boxes(box)[0]
+    if x2 <= x1 or y2 <= y1:
+        raise ValueError("boxes must have positive width and height")
     return np.asarray(((x1 + x2) / 2.0, (y1 + y2) / 2.0, x2 - x1, y2 - y1), dtype=np.float64)
 
 
 def xywh_to_xyxy(box: Iterable[float]) -> np.ndarray:
     value = np.asarray(tuple(float(item) for item in box), dtype=np.float64)
-    if value.shape != (4,) or not np.all(np.isfinite(value)) or value[2] <= 0 or value[3] <= 0:
-        raise ValueError("xywh must be finite (cx, cy, width, height) with positive size")
+    if value.shape != (4,) or not np.all(np.isfinite(value)):
+        raise ValueError("xywh must be finite (cx, cy, width, height)")
     cx, cy, width, height = value
     return np.asarray((cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2), dtype=np.float64)
 
 
 def iou_matrix(boxes_a: Iterable[Iterable[float]] | np.ndarray, boxes_b: Iterable[Iterable[float]] | np.ndarray) -> np.ndarray:
-    """Return pairwise IoU for two ``(x1, y1, x2, y2)`` collections."""
+    """Ultralytics IoU: float32 boxes, signed areas and a union epsilon.
 
-    a = _boxes(boxes_a)
-    b = _boxes(boxes_b)
-    result = np.zeros((len(a), len(b)), dtype=np.float64)
+    GMC can invert corners; only the intersection dimensions are clipped.
+    """
+
+    a = np.ascontiguousarray(_boxes(boxes_a), dtype=np.float32)
+    b = np.ascontiguousarray(_boxes(boxes_b), dtype=np.float32)
+    result = np.zeros((len(a), len(b)), dtype=np.float32)
     if not len(a) or not len(b):
         return result
     top_left = np.maximum(a[:, None, :2], b[None, :, :2])
@@ -64,9 +67,8 @@ def iou_matrix(boxes_a: Iterable[Iterable[float]] | np.ndarray, boxes_b: Iterabl
     intersection = intersection_size[..., 0] * intersection_size[..., 1]
     area_a = (a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1])
     area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-    union = area_a[:, None] + area_b[None, :] - intersection
-    np.divide(intersection, union, out=result, where=union > 0)
-    return result
+    union = area_b[None, :] + area_a[:, None] - intersection
+    return intersection / (union + 1e-7)
 
 
 def iou(box_a: Iterable[float], box_b: Iterable[float]) -> float:

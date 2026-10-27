@@ -41,7 +41,7 @@ public:
     void markLost();
     void markRemoved();
 
-    // Trả hộp hiện tại ở dạng góc hoặc tâm; dùng hộp hợp lệ gần nhất khi cần.
+    // Trả hộp từ state hiện tại; w/h có thể âm sau GMC như Ultralytics.
     BBox bbox() const;
     std::array<double, 4> xywh() const;
     const cv::Mat& mean() const { return mean_; }
@@ -59,9 +59,8 @@ public:
     int age() const { return frame_id_ - start_frame_; }
 
 private:
-    // Hộp ban đầu và hộp hợp lệ gần nhất dùng khi trạng thái dự đoán lỗi.
+    // Hộp detection ban đầu, dùng trước khi khởi tạo Kalman.
     BBox initial_bbox_{};
-    std::array<double, 4> last_valid_xywh_{};
     // Bộ lọc dùng chung do tracker sở hữu; mean_/covariance_ là trạng thái riêng.
     KalmanFilterXYWH* kalman_filter_{nullptr};
     cv::Mat mean_;

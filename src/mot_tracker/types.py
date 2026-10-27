@@ -8,7 +8,9 @@ from numbers import Integral, Real
 from typing import Iterable
 
 
-def _as_box(value: Iterable[Real], *, name: str) -> tuple[float, float, float, float]:
+def _as_box(
+    value: Iterable[Real], *, name: str, positive_size: bool = True
+) -> tuple[float, float, float, float]:
     try:
         values = tuple(float(item) for item in value)
     except (TypeError, ValueError) as exc:
@@ -18,7 +20,7 @@ def _as_box(value: Iterable[Real], *, name: str) -> tuple[float, float, float, f
     if not all(math.isfinite(item) for item in values):
         raise ValueError(f"{name} must contain only finite values")
     x1, y1, x2, y2 = values
-    if x2 <= x1 or y2 <= y1:
+    if positive_size and (x2 <= x1 or y2 <= y1):
         raise ValueError(f"{name} must have positive width and height")
     return values
 
@@ -57,7 +59,7 @@ class Detection:
 
 @dataclass(frozen=True, slots=True)
 class TrackOutput:
-    """One active track returned for the current frame."""
+    """One active track; corners may be inverted by a signed GMC state."""
 
     track_id: int
     bbox_xyxy: tuple[float, float, float, float]
@@ -70,6 +72,6 @@ class TrackOutput:
         if int(self.track_id) <= 0:
             raise ValueError("track_id must be positive")
         object.__setattr__(self, "track_id", int(self.track_id))
-        object.__setattr__(self, "bbox_xyxy", _as_box(self.bbox_xyxy, name="bbox_xyxy"))
+        object.__setattr__(self, "bbox_xyxy", _as_box(self.bbox_xyxy, name="bbox_xyxy", positive_size=False))
         object.__setattr__(self, "score", _as_score(self.score))
         object.__setattr__(self, "class_id", _as_class_id(self.class_id))

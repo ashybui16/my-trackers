@@ -1,7 +1,9 @@
 #include "mot_inference/detector.hpp"
+#include "mot_inference/pipeline.hpp"
 
 #include <cuda_runtime_api.h>
 #include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
 
 #include <cstdlib>
 #include <iostream>
@@ -22,7 +24,16 @@ int main() {
     }
     try {
         mot_inference::TensorRTDetector detector(path);
-        cv::Mat frame = cv::Mat::zeros(480, 640, CV_8UC3);
+        cv::Mat frame;
+        const char* video_path = std::getenv("MOT_VIDEO_PATH");
+        if (video_path != nullptr && std::string(video_path).size() > 0) {
+            cv::VideoCapture capture(video_path);
+            if (!capture.isOpened() || !capture.read(frame) || frame.empty()) {
+                throw std::runtime_error("could not read a frame from MOT_VIDEO_PATH");
+            }
+        } else {
+            frame = cv::Mat::zeros(480, 640, CV_8UC3);
+        }
         const auto detections = detector.infer(frame);
         std::cout << "TensorRT inference succeeded with " << detections.size()
                   << " detections using bindings '" << detector.inputBindingName()

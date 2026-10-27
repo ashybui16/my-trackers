@@ -38,15 +38,15 @@ include(GNUInstallDirs)
 include(CTest)
 
 set(MOT_TRACKER_SOURCES
-    src/assignment.cpp
-    src/association.cpp
-    src/config.cpp
-    src/geometry.cpp
-    src/gmc.cpp
-    src/kalman_filter.cpp
-    src/track.cpp
-    src/tracker.cpp
-    src/types.cpp
+    src/tracker/assignment.cpp
+    src/tracker/association.cpp
+    src/tracker/config.cpp
+    src/tracker/geometry.cpp
+    src/tracker/gmc.cpp
+    src/tracker/kalman_filter.cpp
+    src/tracker/track.cpp
+    src/tracker/tracker.cpp
+    src/tracker/types.cpp
 )
 
 add_library(mot_tracker_cpp STATIC ${MOT_TRACKER_SOURCES})
@@ -60,7 +60,11 @@ target_link_libraries(mot_tracker_cpp PUBLIC ${OpenCV_LIBS})
 target_compile_options(mot_tracker_cpp PRIVATE -Wall -Wextra -Wpedantic)
 
 if(MOT_BUILD_INFERENCE)
-    add_library(mot_inference_cpp STATIC src/detector.cpp src/pipeline.cpp)
+    add_library(mot_inference_cpp STATIC
+        src/detector/detector.cpp
+        src/detector/detector_postprocess.cpp
+        src/pipeline/pipeline.cpp
+    )
     add_library(mot::inference ALIAS mot_inference_cpp)
     target_include_directories(mot_inference_cpp
         PUBLIC
@@ -68,6 +72,7 @@ if(MOT_BUILD_INFERENCE)
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE
             "${TENSORRT_INCLUDE_DIR}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/internal"
     )
     target_link_libraries(mot_inference_cpp
         PUBLIC mot_tracker_cpp ${OpenCV_LIBS}
@@ -75,21 +80,31 @@ if(MOT_BUILD_INFERENCE)
     )
     target_compile_options(mot_inference_cpp PRIVATE -Wall -Wextra -Wpedantic -Wno-deprecated-declarations -Wno-unused-parameter)
 
-    add_executable(mot_video src/mot_video.cpp)
+    add_executable(mot_video src/apps/mot_video.cpp)
     target_link_libraries(mot_video PRIVATE mot_inference_cpp)
     target_compile_options(mot_video PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(MOT_BUILD_TESTS)
-    add_executable(mot_tracker_tests tests/test_mot_tracker.cpp)
+    add_executable(mot_tracker_tests tests/tracker/test_mot_tracker.cpp)
     target_link_libraries(mot_tracker_tests PRIVATE mot_tracker_cpp)
     target_compile_options(mot_tracker_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME mot_tracker_core COMMAND mot_tracker_tests)
     set_tests_properties(mot_tracker_core PROPERTIES LABELS "core;cpu")
+
+    add_executable(mot_detector_postprocess_tests
+        tests/detector/test_detector_postprocess.cpp
+        src/detector/detector_postprocess.cpp
+    )
+    target_include_directories(mot_detector_postprocess_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/internal")
+    target_link_libraries(mot_detector_postprocess_tests PRIVATE mot_tracker_cpp)
+    target_compile_options(mot_detector_postprocess_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME mot_detector_postprocess COMMAND mot_detector_postprocess_tests)
+    set_tests_properties(mot_detector_postprocess PROPERTIES LABELS "inference;cpu")
 endif()
 
 if(MOT_BUILD_GPU_TESTS AND MOT_BUILD_INFERENCE)
-    add_executable(mot_inference_gpu_tests tests/test_inference_gpu.cpp)
+    add_executable(mot_inference_gpu_tests tests/detector/test_inference_gpu.cpp)
     target_link_libraries(mot_inference_gpu_tests PRIVATE mot_inference_cpp CUDA::cudart)
     target_compile_options(mot_inference_gpu_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME mot_inference_gpu COMMAND mot_inference_gpu_tests)

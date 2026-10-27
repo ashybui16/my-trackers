@@ -20,7 +20,7 @@ struct Detection {
     Detection(const BBox& bbox, double confidence, int class_value);
 };
 
-// Kết quả theo dõi trả về cho một đối tượng đang hoạt động.
+// Kết quả theo dõi; bbox hữu hạn có thể đảo góc sau GMC như Ultralytics.
 struct TrackOutput {
     int track_id{0};
     BBox bbox_xyxy{};

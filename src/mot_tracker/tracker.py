@@ -241,16 +241,17 @@ class BoTSORT:
         tracked = joint_tracks(tracked, activated)
         tracked = joint_tracks(tracked, refound)
         lost = subtract_tracks(self.lost_tracks, tracked)
-        lost = joint_tracks(lost, newly_lost)
-        lost = subtract_tracks(lost, newly_removed)
-        tracked, lost, duplicate_removed = remove_duplicate_tracks(tracked, lost)
-        for item in duplicate_removed:
-            item.mark_removed()
-        self.tracked_tracks = [item for item in tracked if item.state == TrackState.TRACKED]
-        self.lost_tracks = [item for item in lost if item.state == TrackState.LOST]
-        for item in (*newly_removed, *duplicate_removed):
-            if item not in self.removed_tracks:
-                self.removed_tracks.append(item)
+        lost.extend(newly_lost)
+        # Use the previous history before appending this frame's removals.
+        # A newly expired track stays in the lost pool for one more association.
+        lost = subtract_tracks(lost, self.removed_tracks)
+        tracked, lost, _ = remove_duplicate_tracks(tracked, lost)
+        # Duplicate suppression only drops pool entries, without marking REMOVED.
+        self.tracked_tracks = tracked
+        self.lost_tracks = lost
+        self.removed_tracks.extend(newly_removed)
+        if len(self.removed_tracks) > 1000:
+            self.removed_tracks = self.removed_tracks[-1000:]
 
     def _current_outputs(self) -> list[TrackOutput]:
         outputs: list[TrackOutput] = []

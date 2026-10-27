@@ -71,7 +71,8 @@ class Track:
 
     @property
     def xywh(self) -> np.ndarray:
-        return xyxy_to_xywh(self.xyxy)
+        # Preserve signed sizes from the Kalman state after camera rotation.
+        return xyxy_to_xywh(self.xyxy) if self.mean is None else self.mean[:4].copy()
 
     @property
     def xyxy(self) -> np.ndarray:

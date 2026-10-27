@@ -67,7 +67,9 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-Package lõi sử dụng NumPy, OpenCV và `lap`; các dependency này được khai báo trong `pyproject.toml`.
+Package lõi sử dụng NumPy, OpenCV và `lap`; các dependency này được khai báo trong `pyproject.toml`. Solver ghép dùng `lap.lapjv(extend_cost=True, cost_limit=...)` như mặc định Ultralytics. Thiếu `lap` sẽ báo lỗi import, không dùng solver fallback.
+
+Vòng đời track đồng bộ với Ultralytics/C++: track vừa hết hạn còn trong pool lost để thử ghép thêm một frame; lịch sử removed giữ tối đa 1000 phần tử mới nhất theo thứ tự append. Track bị loại do trùng chỉ rời pool, không đổi trạng thái hay thêm vào lịch sử removed. IoU dùng float32, diện tích có dấu và epsilon `1e-7` ở mẫu số. Bbox/state sau GMC giữ nguyên kích thước có dấu, kể cả góc đảo; `TrackOutput` chấp nhận bbox hữu hạn này, còn `Detection` đầu vào vẫn yêu cầu kích thước dương.
 
 ### Chạy đầy đủ video/VisDrone pipeline
 

@@ -1,4 +1,4 @@
-#include "mot_inference/pipeline.hpp"
+#include "mot_pipeline/pipeline.hpp"
 
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>

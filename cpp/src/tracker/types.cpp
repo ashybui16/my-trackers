@@ -6,13 +6,21 @@
 
 namespace mot_tracker {
 
-void validateBBox(const BBox& bbox, const char* name) {
-    // Chặn tọa độ không hữu hạn và hộp có chiều rộng/chiều cao không dương.
+namespace {
+
+void validateFiniteBBox(const BBox& bbox, const char* name) {
     for (double value : bbox) {
         if (!std::isfinite(value)) {
             throw std::invalid_argument(std::string(name) + " must contain only finite values");
         }
     }
+}
+
+}  // namespace
+
+void validateBBox(const BBox& bbox, const char* name) {
+    // Detection đầu vào vẫn phải có tọa độ hữu hạn và kích thước dương.
+    validateFiniteBBox(bbox, name);
     if (bbox[2] <= bbox[0] || bbox[3] <= bbox[1]) {
         throw std::invalid_argument(std::string(name) + " must have positive width and height");
     }
@@ -34,11 +42,11 @@ Detection::Detection(const BBox& bbox, double confidence, int class_value)
 
 TrackOutput::TrackOutput(int id, const BBox& bbox, double confidence, int class_value)
     : track_id(id), bbox_xyxy(bbox), score(confidence), class_id(class_value) {
-    // Kết quả theo dõi phải có ID dương và hộp/điểm hợp lệ.
+    // Cho phép góc đảo từ state GMC như Ultralytics; vẫn kiểm tra số hữu hạn.
     if (track_id <= 0) {
         throw std::invalid_argument("track_id must be positive");
     }
-    validateBBox(bbox_xyxy);
+    validateFiniteBBox(bbox_xyxy, "bbox_xyxy");
     validateScore(score);
 }
 

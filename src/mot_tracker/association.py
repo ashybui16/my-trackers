@@ -47,7 +47,11 @@ def subtract_tracks(first: list[Track], second: list[Track]) -> list[Track]:
 def remove_duplicate_tracks(
     tracked: list[Track], lost: list[Track], *, iou_threshold: float = 0.85
 ) -> tuple[list[Track], list[Track], list[Track]]:
-    """Remove duplicate active/lost tracks, preferring the longer-lived one."""
+    """Drop duplicates from pools, preferring longer life (ties drop tracked).
+
+    The third result reports dropped entries for inspection only; suppression
+    does not change their state or add them to the tracker's removed history.
+    """
 
     if not tracked or not lost:
         return tracked, lost, []
