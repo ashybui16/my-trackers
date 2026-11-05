@@ -273,5 +273,3 @@ Short video inputs produce an explicit insufficient-samples warning; zero measur
 Run before/after benchmarks sequentially, with the same Release toolchain, hardware, engine, YAML and video.
 Avoid concurrent builds or benchmarks when collecting comparison numbers. Do not interpret input video FPS
 metadata as processing throughput, or the detection+tracking stage as complete application throughput.
-
-See [CPP_PERFORMANCE.md](CPP_PERFORMANCE.md) for this change's measurements and validation limits.

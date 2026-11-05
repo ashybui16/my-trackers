@@ -259,13 +259,12 @@ Các test của package lõi không import Ultralytics. Bộ test hiện bao ph�
 - Chưa hỗ trợ ReID hoặc appearance embedding.
 - Chỉ hỗ trợ bounding box axis-aligned.
 - GMC chỉ hỗ trợ `sparseOptFlow` và `none` trong package độc lập.
-- Chưa có implementation C++.
 - Các module bên trong như assignment, Kalman và association chưa được xem là public API ổn định.
 
 ## Tài liệu thêm
 
-- [`docs/PLAN.md`](docs/PLAN.md): kế hoạch pipeline/benchmark ban đầu.
-- [`docs/PLAN1.md`](docs/PLAN1.md): thiết kế tách BoT-SORT thành package độc lập.
+- [`docs/CPP.md`](docs/CPP.md): build và nhúng thư viện C++.
+- [`src/mot_tracker/README.md`](src/mot_tracker/README.md): layout package Python và cách thêm tracker mới.
 
 ## Giấy phép
 

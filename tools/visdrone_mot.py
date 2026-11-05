@@ -1283,7 +1283,7 @@ def default_tunable_config() -> dict[str, Any]:
 
 
 def suggest_tracker_params(trial: Any) -> dict[str, Any]:
-    """Suggest exactly the search space from PLAN.md.
+    """Suggest the BoT-SORT tuning search space.
 
     ``track_low_thresh`` and ``new_track_thresh`` use the sampled high threshold
     as their bound, so invalid configurations cannot reach the tracker.
