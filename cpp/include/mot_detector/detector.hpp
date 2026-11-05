@@ -11,7 +11,7 @@
 namespace mot_inference {
 
 struct DetectorConfig {
-    // Kích thước ảnh đưa vào engine TensorRT.
+    // Kích thước phải khớp input cố định [1,3,H,W] của engine TensorRT.
     int input_width{640};
     int input_height{640};
     // Ngưỡng điểm tin cậy và IoU dùng để lọc detection/NMS.
@@ -25,7 +25,7 @@ struct DetectorConfig {
     void validate() const;
 };
 
-// Nạp engine TensorRT và chuyển kết quả suy luận thành Detection.
+// Engine dùng binding FP32 tuyến tính, output cố định [1,4+class_count,N].
 class TensorRTDetector {
 public:
     TensorRTDetector(const std::string& engine_path, DetectorConfig config = {});
@@ -34,9 +34,9 @@ public:
     TensorRTDetector(const TensorRTDetector&) = delete;
     TensorRTDetector& operator=(const TensorRTDetector&) = delete;
     TensorRTDetector(TensorRTDetector&&) noexcept;
-    TensorRTDetector& operator=(TensorRTDetector&&) noexcept;
+    TensorRTDetector& operator=(TensorRTDetector&&) noexcept;   
 
-    // Chạy suy luận trên một ảnh OpenCV và trả các hộp sau lọc.
+    // Chỉ nhận ảnh BGR 2D không rỗng kiểu CV_8UC3; trả các hộp sau lọc.
     std::vector<mot_tracker::Detection> infer(const cv::Mat& frame);
 
     const DetectorConfig& config() const { return config_; }

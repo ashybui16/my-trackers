@@ -92,21 +92,21 @@ KalmanState KalmanFilterXYWH::initiate(const std::array<double, 4>& measurement)
 KalmanState KalmanFilterXYWH::predict(const KalmanState& state) const {
     // Tăng độ bất định theo kích thước, rồi truyền trạng thái qua mô hình chuyển động.
     validateState(state);
-    cv::Mat standard_position(4, 1, CV_64F);
-    cv::Mat standard_velocity(4, 1, CV_64F);
+    std::array<double, 4> standard_position{};
+    std::array<double, 4> standard_velocity{};
     const double width = state.mean.at<double>(2, 0);
     const double height = state.mean.at<double>(3, 0);
     const std::array<double, 4> sizes = {width, height, width, height};
     for (int index = 0; index < 4; ++index) {
-        standard_position.at<double>(index, 0) = std_weight_position_ * sizes[static_cast<std::size_t>(index)];
-        standard_velocity.at<double>(index, 0) = std_weight_velocity_ * sizes[static_cast<std::size_t>(index)];
+        standard_position[static_cast<std::size_t>(index)] = std_weight_position_ * sizes[static_cast<std::size_t>(index)];
+        standard_velocity[static_cast<std::size_t>(index)] = std_weight_velocity_ * sizes[static_cast<std::size_t>(index)];
     }
     cv::Mat motion_cov = cv::Mat::zeros(8, 8, CV_64F);
     for (int index = 0; index < 4; ++index) {
         motion_cov.at<double>(index, index) =
-            standard_position.at<double>(index, 0) * standard_position.at<double>(index, 0);
+            standard_position[static_cast<std::size_t>(index)] * standard_position[static_cast<std::size_t>(index)];
         motion_cov.at<double>(index + 4, index + 4) =
-            standard_velocity.at<double>(index, 0) * standard_velocity.at<double>(index, 0);
+            standard_velocity[static_cast<std::size_t>(index)] * standard_velocity[static_cast<std::size_t>(index)];
     }
     return {motion_mat_ * state.mean,
             motion_mat_ * state.covariance * motion_mat_.t() + motion_cov};

@@ -32,8 +32,11 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
     // Chia detection theo điểm: nhóm cao để ghép chính, nhóm thấp để cứu track cũ.
     std::vector<TrackPtr> high_detections;
     std::vector<TrackPtr> low_detections;
+    high_detections.reserve(detections.size());
+    low_detections.reserve(detections.size());
     for (std::size_t index = 0; index < detections.size(); ++index) {
         const auto& detection = detections[index];
+        if (!(detection.score >= config_.track_high_thresh || detection.score > config_.track_low_thresh)) continue;
         auto track = std::make_shared<Track>(detection, static_cast<int>(index));
         if (detection.score >= config_.track_high_thresh) {
             high_detections.push_back(std::move(track));
@@ -50,6 +53,8 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
     // Tách track chưa xác nhận khỏi track đã theo dõi; thêm track mất vào pool dự đoán.
     std::vector<TrackPtr> unconfirmed;
     std::vector<TrackPtr> confirmed;
+    confirmed.reserve(tracked_tracks_.size());
+    unconfirmed.reserve(tracked_tracks_.size());
     for (const auto& track : tracked_tracks_) {
         if (track->isActivated()) {
             confirmed.push_back(track);
@@ -239,6 +244,7 @@ void BoTSORT::mergePools(const std::vector<TrackPtr>& activated,
 std::vector<TrackOutput> BoTSORT::currentOutputs() const {
     // Chỉ trả track đang theo dõi và đã được xác nhận.
     std::vector<TrackOutput> outputs;
+    outputs.reserve(tracked_tracks_.size());
     for (const auto& track : tracked_tracks_) {
         if (track->state() != TrackState::Tracked || !track->isActivated()) {
             continue;

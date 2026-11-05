@@ -1,0 +1,11 @@
+{
+  "config_sha256": "161411dc311bf3da1bdbbb947d75e3235c977657e1ec59286650de1263ea0ca8",
+  "engine_sha256": "ddc81d1cc405371bb282da324bfefd4702418f57c12dcbfcca7cd1de8e162f30",
+  "config": "# Paths are relative to this configuration file. CLI flags override these values.\ndetector:\n  engine_path: \"26leaf1.engine\"\n  input_width: 640\n  input_height: 640\n  class_count: 10\n  conf_threshold: 0.20\n  iou_threshold: 0.70\n  max_det: 300\n\ntracker:\n  track_high_thresh: 0.40\n  track_low_thresh: 0.20\n  new_track_thresh: 0.70\n  track_buffer: 90\n  match_thresh: 0.70\n  fuse_score: true\n  gmc_method: \"sparseOptFlow\"\n  gmc_downscale: 2\n",
+  "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.39",
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+  "gpu": "NVIDIA GeForce GTX 1050 Ti, 580.178.04",
+  "opencv": "4.6.0",
+  "video": "data/input.ts (1280x720, 25 FPS)",
+  "method": "sequential baseline/optimized pairs; CPU 100 warmup + 100 samples; video 100 warmup + 1000 frames; 3 repeats"
+}

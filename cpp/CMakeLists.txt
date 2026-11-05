@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.18)
 
 project(mot_tracker_cpp VERSION 1.0.0 LANGUAGES CXX)
 
+option(MOT_BUILD_BENCHMARKS "Build optional CPU/video performance benchmarks" OFF)
+
 option(MOT_BUILD_TESTS "Build tracker CTest tests" ON)
 option(MOT_BUILD_GPU_TESTS "Build tests that require a TensorRT engine and NVIDIA GPU" OFF)
 option(MOT_BUILD_INFERENCE "Build TensorRT detector, pipeline and video CLI" ON)
@@ -59,6 +61,16 @@ target_include_directories(mot_tracker_cpp
 target_link_libraries(mot_tracker_cpp PUBLIC ${OpenCV_LIBS})
 target_compile_options(mot_tracker_cpp PRIVATE -Wall -Wextra -Wpedantic)
 
+add_library(mot_pipeline_config_cpp STATIC src/pipeline/pipeline_config.cpp)
+add_library(mot::config ALIAS mot_pipeline_config_cpp)
+target_link_libraries(mot_pipeline_config_cpp PUBLIC mot_tracker_cpp)
+target_compile_options(mot_pipeline_config_cpp PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(mot_annotator_cpp STATIC src/annotator/annotation.cpp)
+add_library(mot::annotator ALIAS mot_annotator_cpp)
+target_link_libraries(mot_annotator_cpp PUBLIC mot_tracker_cpp)
+target_compile_options(mot_annotator_cpp PRIVATE -Wall -Wextra -Wpedantic)
+
 if(MOT_BUILD_INFERENCE)
     add_library(mot_inference_cpp STATIC
         src/detector/detector.cpp
@@ -75,17 +87,34 @@ if(MOT_BUILD_INFERENCE)
             "${CMAKE_CURRENT_SOURCE_DIR}/internal"
     )
     target_link_libraries(mot_inference_cpp
-        PUBLIC mot_tracker_cpp ${OpenCV_LIBS}
+        PUBLIC mot_tracker_cpp mot_pipeline_config_cpp ${OpenCV_LIBS}
         PRIVATE "${TENSORRT_NVINFER_LIBRARY}" CUDA::cudart
     )
     target_compile_options(mot_inference_cpp PRIVATE -Wall -Wextra -Wpedantic -Wno-deprecated-declarations -Wno-unused-parameter)
 
     add_executable(mot_video src/apps/mot_video.cpp)
-    target_link_libraries(mot_video PRIVATE mot_inference_cpp)
+    target_link_libraries(mot_video PRIVATE mot_inference_cpp mot_annotator_cpp)
     target_compile_options(mot_video PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 if(MOT_BUILD_TESTS)
+    add_executable(mot_performance_regression_tests tests/test_performance_regressions.cpp src/detector/detector_postprocess.cpp)
+    target_include_directories(mot_performance_regression_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/internal")
+    target_link_libraries(mot_performance_regression_tests PRIVATE mot_tracker_cpp)
+    target_compile_options(mot_performance_regression_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME mot_performance_regressions COMMAND mot_performance_regression_tests)
+    set_tests_properties(mot_performance_regressions PROPERTIES LABELS "regression;cpu")
+    add_executable(mot_config_tests tests/pipeline/test_config.cpp)
+    target_link_libraries(mot_config_tests PRIVATE mot_pipeline_config_cpp)
+    target_compile_options(mot_config_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME mot_config COMMAND mot_config_tests "${CMAKE_CURRENT_SOURCE_DIR}/../weights/config.yaml")
+    set_tests_properties(mot_config PROPERTIES LABELS "config;cpu")
+
+    add_executable(mot_annotator_tests tests/annotator/test_annotation.cpp)
+    target_link_libraries(mot_annotator_tests PRIVATE mot_annotator_cpp)
+    target_compile_options(mot_annotator_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME mot_annotator COMMAND mot_annotator_tests "${CMAKE_CURRENT_SOURCE_DIR}/../weights/26leaf1.engine")
+    set_tests_properties(mot_annotator PROPERTIES LABELS "annotation;cpu")
     add_executable(mot_tracker_tests tests/tracker/test_mot_tracker.cpp)
     target_link_libraries(mot_tracker_tests PRIVATE mot_tracker_cpp)
     target_compile_options(mot_tracker_tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -114,7 +143,21 @@ if(MOT_BUILD_GPU_TESTS AND MOT_BUILD_INFERENCE)
     )
 endif()
 
-set(MOT_INSTALL_TARGETS mot_tracker_cpp)
+if(MOT_BUILD_BENCHMARKS)
+    add_executable(mot_benchmark_cpu benchmarks/mot_benchmark.cpp src/detector/detector_postprocess.cpp)
+    target_include_directories(mot_benchmark_cpu PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/internal")
+    target_link_libraries(mot_benchmark_cpu PRIVATE mot_pipeline_config_cpp mot_annotator_cpp)
+    target_compile_options(mot_benchmark_cpu PRIVATE -Wall -Wextra -Wpedantic)
+    if(MOT_BUILD_INFERENCE)
+        add_executable(mot_benchmark_video benchmarks/mot_benchmark.cpp)
+        target_include_directories(mot_benchmark_video PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/internal")
+        target_compile_definitions(mot_benchmark_video PRIVATE MOT_BENCHMARK_GPU)
+        target_link_libraries(mot_benchmark_video PRIVATE mot_inference_cpp mot_annotator_cpp)
+        target_compile_options(mot_benchmark_video PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
+
+set(MOT_INSTALL_TARGETS mot_tracker_cpp mot_pipeline_config_cpp mot_annotator_cpp)
 if(MOT_BUILD_INFERENCE)
     list(APPEND MOT_INSTALL_TARGETS mot_inference_cpp mot_video)
 endif()

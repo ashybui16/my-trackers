@@ -31,11 +31,16 @@ private:
     cv::Mat previous_frame_;
     std::vector<cv::Point2f> previous_keypoints_;
     bool initialized_first_frame_{false};
+    // Ping-pong current/history buffers; never write to a retained history image.
+    cv::Mat current_frame_, gray_buffer_, normalized_buffer_;
+    std::vector<cv::Point2f> keypoints_, matched_, previous_good_, current_good_;
+    std::vector<unsigned char> status_;
+    std::vector<float> error_;
 
     // Trả ma trận đơn vị khi chưa có hoặc không ước lượng được chuyển động.
     static cv::Mat identityWarp();
     // Chuyển ảnh sang xám và thu nhỏ theo downscale_.
-    cv::Mat toGray(const cv::Mat& frame) const;
+    cv::Mat toGray(const cv::Mat& frame);
     // Lưu dữ liệu frame hiện tại để đối chiếu ở lần gọi sau.
     void remember(const cv::Mat& gray, const std::vector<cv::Point2f>& keypoints);
     static void warn(const std::string& message);

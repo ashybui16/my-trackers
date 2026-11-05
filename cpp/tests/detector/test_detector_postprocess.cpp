@@ -16,7 +16,6 @@ constexpr int kFeatureCount = 4 + kClassCount;
 struct Tensor {
     std::vector<float> values;
     int candidate_count{0};
-    bool feature_first{true};
 };
 
 void expect(bool condition, const std::string& message) {
@@ -32,16 +31,13 @@ void expectNear(double actual, double expected, double tolerance, const std::str
     }
 }
 
-Tensor makeTensor(int candidate_count, bool feature_first = true) {
+Tensor makeTensor(int candidate_count) {
     return {std::vector<float>(static_cast<std::size_t>(kFeatureCount) * candidate_count, 0.0F),
-            candidate_count,
-            feature_first};
+            candidate_count};
 }
 
 void setValue(Tensor& tensor, int candidate, int feature, float value) {
-    const std::size_t offset = tensor.feature_first
-                                   ? static_cast<std::size_t>(feature) * tensor.candidate_count + candidate
-                                   : static_cast<std::size_t>(candidate) * kFeatureCount + feature;
+    const std::size_t offset = static_cast<std::size_t>(feature) * tensor.candidate_count + candidate;
     tensor.values[offset] = value;
 }
 
@@ -74,8 +70,7 @@ std::vector<mot_tracker::Detection> run(const Tensor& tensor,
                                         const mot_inference::detail::OutputOptions& config) {
     return mot_inference::detail::processOutput(
         tensor.values.data(),
-        tensor.feature_first ? kFeatureCount : tensor.candidate_count,
-        tensor.feature_first ? tensor.candidate_count : kFeatureCount,
+        tensor.candidate_count,
         config);
 }
 
@@ -90,28 +85,26 @@ void testVendoredUltralyticsReference() {
     }};
     const std::array<float, 2> expected_scores{{0.9F, 0.7F}};
     const std::array<int, 2> expected_classes{{0, 1}};
-    for (bool feature_first : {true, false}) {
-        Tensor tensor = makeTensor(4, feature_first);
-        setCandidate(tensor, 0, 10.0F, 10.0F, 10.0F, 10.0F, 0, 0.9F);
-        setCandidate(tensor, 1, 10.0F, 10.0F, 10.0F, 10.0F, 0, 0.8F);
-        setCandidate(tensor, 2, 20.0F, 15.0F, 10.0F, 8.0F, 1, 0.7F);
-        setCandidate(tensor, 3, 60.0F, 15.0F, 10.0F, 8.0F, 2, 0.6F);
+    Tensor tensor = makeTensor(4);
+    setCandidate(tensor, 0, 10.0F, 10.0F, 10.0F, 10.0F, 0, 0.9F);
+    setCandidate(tensor, 1, 10.0F, 10.0F, 10.0F, 10.0F, 0, 0.8F);
+    setCandidate(tensor, 2, 20.0F, 15.0F, 10.0F, 8.0F, 1, 0.7F);
+    setCandidate(tensor, 3, 60.0F, 15.0F, 10.0F, 8.0F, 2, 0.6F);
 
-        auto config = options();
-        config.conf_threshold = 0.25;
-        config.iou_threshold = 0.45;
-        config.transform = {0.625, 0, 6, 80, 60};
-        const auto detections = run(tensor, config);
-        expect(detections.size() == expected_boxes.size(), "vendored NMS reference detection count");
-        for (std::size_t index = 0; index < detections.size(); ++index) {
-            expect(detections[index].class_id == expected_classes[index], "vendored NMS reference class");
-            expectNear(detections[index].score, expected_scores[index], 1e-6, "vendored NMS reference score");
-            for (std::size_t coordinate = 0; coordinate < 4; ++coordinate) {
-                expectNear(detections[index].bbox_xyxy[coordinate],
-                           expected_boxes[index][coordinate],
-                           1e-3,
-                           "vendored NMS reference coordinate");
-            }
+    auto config = options();
+    config.conf_threshold = 0.25;
+    config.iou_threshold = 0.45;
+    config.transform = {0.625, 0, 6, 80, 60};
+    const auto detections = run(tensor, config);
+    expect(detections.size() == expected_boxes.size(), "vendored NMS reference detection count");
+    for (std::size_t index = 0; index < detections.size(); ++index) {
+        expect(detections[index].class_id == expected_classes[index], "vendored NMS reference class");
+        expectNear(detections[index].score, expected_scores[index], 1e-6, "vendored NMS reference score");
+        for (std::size_t coordinate = 0; coordinate < 4; ++coordinate) {
+            expectNear(detections[index].bbox_xyxy[coordinate],
+                       expected_boxes[index][coordinate],
+                       1e-3,
+                       "vendored NMS reference coordinate");
         }
     }
 }

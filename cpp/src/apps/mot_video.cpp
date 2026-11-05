@@ -1,6 +1,6 @@
 #include "mot_pipeline/pipeline.hpp"
+#include "mot_annotator/annotation.hpp"
 
-#include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 
 #include <cmath>
@@ -10,7 +10,6 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -24,21 +23,8 @@ namespace {
 // Giá trị dòng lệnh cho video, engine, đầu ra và hai bước xử lý.
 struct Options {
     std::filesystem::path video;
-    std::filesystem::path engine;
     std::filesystem::path output_dir{"runs/video_inference_cpp"};
-    int input_width{640};
-    int input_height{640};
-    double conf{0.01};
-    double iou{0.70};
-    int max_det{300};
-    double track_high_thresh{0.25};
-    double track_low_thresh{0.10};
-    double new_track_thresh{0.25};
-    int track_buffer{30};
-    double match_thresh{0.80};
-    bool fuse_score{true};
-    std::string gmc_method{"sparseOptFlow"};
-    int gmc_downscale{2};
+    mot_inference::PipelineConfig config;
     bool overwrite{false};
 };
 
@@ -46,7 +32,10 @@ struct Options {
 [[noreturn]] void usageError(const std::string& message) {
     // Ghép lỗi cụ thể với hướng dẫn cú pháp để người dùng sửa tham số.
     throw std::invalid_argument(message +
-                                "\nUsage: mot_video VIDEO --engine ENGINE [options]\n"
+                                "\nUsage: mot_video VIDEO [--config YAML] [options]\n"
+                                "  --config YAML                 default: weights/config.yaml (or MOT_CONFIG_PATH)\n"
+                                "  --engine ENGINE               override YAML engine path\n"
+                                "  --class-count N\n"
                                 "  --output-dir DIR              output directory\n"
                                 "  --input-width N --input-height N\n"
                                 "  --conf F --iou F --max-det N\n"
@@ -99,10 +88,34 @@ std::string nextValue(int& index, int argc, char** argv, const std::string& opti
 Options parseOptions(int argc, char** argv) {
     // Duyệt argv, ánh xạ từng cờ vào Options và kiểm tra tham số bắt buộc.
     Options options;
+    // Read YAML first so explicit CLI overrides are independent of argument order.
+    const char* environment_config = std::getenv("MOT_CONFIG_PATH");
+    std::string config_path = environment_config && *environment_config
+        ? environment_config : "weights/config.yaml";
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help" || argument == "-h") {
-            std::cout << "Usage: mot_video VIDEO --engine ENGINE [options]\n";
+            std::cout << "Usage: mot_video VIDEO [--config YAML] [options]\n"
+                      << "Default config: weights/config.yaml (or MOT_CONFIG_PATH)\n"
+                      << "CLI overrides: --engine, --class-count, --input-width, --input-height,\n"
+                      << "  --conf, --iou, --max-det, --track-high-thresh, --track-low-thresh,\n"
+                      << "  --new-track-thresh, --track-buffer, --match-thresh, --fuse-score,\n"
+                      << "  --no-fuse-score, --gmc-method, --gmc-downscale\n"
+                      << "Output: --output-dir DIR, --overwrite\n";
+            std::exit(0);
+        }
+        if (argument == "--overwrite" || argument == "--fuse-score" || argument == "--no-fuse-score")
+            continue;
+        if (argument.rfind("--", 0) == 0) {
+            const auto value = nextValue(index, argc, argv, argument);
+            if (argument == "--config") config_path = value;
+        }
+    }
+    options.config = mot_inference::PipelineConfig::fromFile(config_path);
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (argument == "--help" || argument == "-h") {
+            std::cout << "Usage: mot_video VIDEO [--config YAML] [options]\n";
             std::exit(0);
         }
         if (argument.rfind("--", 0) != 0) {
@@ -115,37 +128,41 @@ Options parseOptions(int argc, char** argv) {
         if (argument == "--overwrite") {
             options.overwrite = true;
         } else if (argument == "--fuse-score") {
-            options.fuse_score = true;
+            options.config.tracker.fuse_score = true;
         } else if (argument == "--no-fuse-score") {
-            options.fuse_score = false;
+            options.config.tracker.fuse_score = false;
+        } else if (argument == "--config") {
+            nextValue(index, argc, argv, argument);
+        } else if (argument == "--class-count") {
+            options.config.detector.class_count = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--engine") {
-            options.engine = nextValue(index, argc, argv, argument);
+            options.config.engine_path = nextValue(index, argc, argv, argument);
         } else if (argument == "--output-dir") {
             options.output_dir = nextValue(index, argc, argv, argument);
         } else if (argument == "--input-width") {
-            options.input_width = parseInt(argument, nextValue(index, argc, argv, argument));
+            options.config.detector.input_width = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--input-height") {
-            options.input_height = parseInt(argument, nextValue(index, argc, argv, argument));
+            options.config.detector.input_height = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--conf") {
-            options.conf = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.detector.conf_threshold = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--iou") {
-            options.iou = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.detector.iou_threshold = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--max-det") {
-            options.max_det = parseInt(argument, nextValue(index, argc, argv, argument));
+            options.config.detector.max_det = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--track-high-thresh") {
-            options.track_high_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.track_high_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--track-low-thresh") {
-            options.track_low_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.track_low_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--new-track-thresh") {
-            options.new_track_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.new_track_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--track-buffer") {
-            options.track_buffer = parseInt(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.track_buffer = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--match-thresh") {
-            options.match_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.match_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--gmc-method") {
-            options.gmc_method = nextValue(index, argc, argv, argument);
+            options.config.tracker.gmc_method = nextValue(index, argc, argv, argument);
         } else if (argument == "--gmc-downscale") {
-            options.gmc_downscale = parseInt(argument, nextValue(index, argc, argv, argument));
+            options.config.tracker.gmc_downscale = parseInt(argument, nextValue(index, argc, argv, argument));
         } else {
             usageError("unknown option '" + argument + "'");
         }
@@ -153,9 +170,9 @@ Options parseOptions(int argc, char** argv) {
     if (options.video.empty()) {
         usageError("VIDEO is required");
     }
-    if (options.engine.empty()) {
-        usageError("--engine is required");
-    }
+    if (options.config.engine_path.empty()) usageError("engine path must not be empty");
+    options.config.detector.validate();
+    options.config.tracker.validate();
     return options;
 }
 
@@ -171,34 +188,14 @@ std::filesystem::path temporaryPath(const std::filesystem::path& directory,
     return directory / ("." + stem + "." + std::to_string(process_id) + ".tmp" + suffix);
 }
 
-// Vẽ hộp và ID lên frame xuất ra video.
-void drawTracks(cv::Mat& frame, const std::vector<mot_tracker::TrackOutput>& tracks) {
-    // Đổi hộp sang pixel nguyên rồi vẽ khung, ID, lớp và điểm tin cậy.
-    for (const auto& track : tracks) {
-        const int x1 = static_cast<int>(std::lround(track.bbox_xyxy[0]));
-        const int y1 = static_cast<int>(std::lround(track.bbox_xyxy[1]));
-        const int x2 = static_cast<int>(std::lround(track.bbox_xyxy[2]));
-        const int y2 = static_cast<int>(std::lround(track.bbox_xyxy[3]));
-        const cv::Scalar color((37 * track.track_id) % 255,
-                               (67 * track.track_id) % 255,
-                               (101 * track.track_id) % 255);
-        cv::rectangle(frame, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
-        std::ostringstream label;
-        label << track.track_id << ':' << track.class_id + 1 << ' '
-              << std::fixed << std::setprecision(2) << track.score;
-        cv::putText(frame, label.str(), cv::Point(x1, std::max(0, y1 - 5)),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv::LINE_AA);
-    }
-}
-
 // Chạy suy luận từng frame và ghi video cùng kết quả theo dõi.
 int run(const Options& options) {
     // Kiểm tra đầu vào và chuẩn bị tên file tạm trước khi mở video/engine.
     if (!std::filesystem::is_regular_file(options.video)) {
         throw std::runtime_error("input video does not exist: " + options.video.string());
     }
-    if (!std::filesystem::is_regular_file(options.engine)) {
-        throw std::runtime_error("TensorRT engine does not exist: " + options.engine.string());
+    if (!std::filesystem::is_regular_file(options.config.engine_path)) {
+        throw std::runtime_error("TensorRT engine does not exist: " + options.config.engine_path);
     }
     std::filesystem::create_directories(options.output_dir);
     const std::string stem = options.video.stem().string();
@@ -224,22 +221,8 @@ int run(const Options& options) {
     const int expected_width = static_cast<int>(capture.get(cv::CAP_PROP_FRAME_WIDTH));
     const int expected_height = static_cast<int>(capture.get(cv::CAP_PROP_FRAME_HEIGHT));
 
-    // Chuyển tùy chọn dòng lệnh thành cấu hình detector và tracker.
-    mot_inference::PipelineConfig config;
-    config.detector.input_width = options.input_width;
-    config.detector.input_height = options.input_height;
-    config.detector.conf_threshold = options.conf;
-    config.detector.iou_threshold = options.iou;
-    config.detector.max_det = options.max_det;
-    config.tracker.track_high_thresh = options.track_high_thresh;
-    config.tracker.track_low_thresh = options.track_low_thresh;
-    config.tracker.new_track_thresh = options.new_track_thresh;
-    config.tracker.track_buffer = options.track_buffer;
-    config.tracker.match_thresh = options.match_thresh;
-    config.tracker.fuse_score = options.fuse_score;
-    config.tracker.gmc_method = options.gmc_method;
-    config.tracker.gmc_downscale = options.gmc_downscale;
-    mot_inference::MotPipeline pipeline(options.engine.string(), config);
+    mot_inference::MotPipeline pipeline(options.config.engine_path, options.config);
+    mot_inference::MotAnnotator annotator(options.config.engine_path, options.config.detector.class_count);
 
     std::ofstream output_text(temporary_predictions);
     if (!output_text) {
@@ -258,8 +241,8 @@ int run(const Options& options) {
         while (capture.read(frame)) {
             ++frame_count;
             auto tracks = pipeline.processFrame(frame);
-            cv::Mat annotated_frame = frame.clone();
-            drawTracks(annotated_frame, tracks);
+            cv::Mat annotated_frame = frame; // Pipeline has finished reading the original frame.
+            annotator.draw(annotated_frame, tracks);
             if (!writer_started) {
                 if (expected_width > 0 && expected_height > 0 &&
                     (annotated_frame.cols != expected_width || annotated_frame.rows != expected_height)) {

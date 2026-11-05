@@ -14,6 +14,10 @@ struct PipelineConfig {
     // Tùy chọn cho hai bước phát hiện và theo dõi.
     DetectorConfig detector{};
     mot_tracker::BoTSORTConfig tracker{};
+    std::string engine_path{"26leaf1.engine"};
+
+    // Resolve relative engine paths against the YAML file directory.
+    static PipelineConfig fromFile(const std::string& path);
 };
 
 class MotPipeline {

@@ -42,7 +42,9 @@ Thumbs.db
 # Local datasets, model checkpoints, and experiment output
 /data/
 /runs/
-/weights/
+/weights/*
+!/weights/config.yaml
+!/weights/visdrone.yaml
 /checkpoints/
 *.pt
 *.pth

@@ -1,5 +1,6 @@
 #include "mot_tracker/assignment.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -7,20 +8,20 @@
 namespace mot_tracker {
 namespace {
 
-std::vector<int> hungarian(const std::vector<std::vector<double>>& input) {
+std::vector<int> hungarian(const std::vector<double>& input, int size) {
     // Tăng dần phép ghép tối ưu bằng thế u/v và đường tăng trong ma trận vuông.
-    const int size = static_cast<int>(input.size());
     std::vector<double> u(static_cast<std::size_t>(size) + 1, 0.0);
     std::vector<double> v(static_cast<std::size_t>(size) + 1, 0.0);
     std::vector<int> p(static_cast<std::size_t>(size) + 1, 0);
     std::vector<int> way(static_cast<std::size_t>(size) + 1, 0);
 
+    std::vector<double> min_value(static_cast<std::size_t>(size) + 1);
+    std::vector<unsigned char> used(static_cast<std::size_t>(size) + 1);
     for (int row = 1; row <= size; ++row) {
         p[0] = row;
         int column0 = 0;
-        std::vector<double> min_value(static_cast<std::size_t>(size) + 1,
-                                      std::numeric_limits<double>::infinity());
-        std::vector<bool> used(static_cast<std::size_t>(size) + 1, false);
+        std::fill(min_value.begin(), min_value.end(), std::numeric_limits<double>::infinity());
+        std::fill(used.begin(), used.end(), 0);
         do {
             used[static_cast<std::size_t>(column0)] = true;
             const int row0 = p[static_cast<std::size_t>(column0)];
@@ -30,8 +31,7 @@ std::vector<int> hungarian(const std::vector<std::vector<double>>& input) {
                 if (used[static_cast<std::size_t>(column)]) {
                     continue;
                 }
-                const double current = input[static_cast<std::size_t>(row0 - 1)]
-                                           [static_cast<std::size_t>(column - 1)]
+                const double current = input[static_cast<std::size_t>(row0 - 1) * size + column - 1]
                                        - u[static_cast<std::size_t>(row0)]
                                        - v[static_cast<std::size_t>(column)];
                 if (current < min_value[static_cast<std::size_t>(column)] - 1e-15) {
@@ -104,18 +104,17 @@ AssignmentResult linearAssignment(const std::vector<std::vector<double>>& cost,
     // Hàng/cột giả cho phép bỏ ghép; cặp thật chỉ có lợi khi chi phí không vượt ngưỡng.
     const int size = rows + columns;
     constexpr double forbidden = 1.0e12;
-    std::vector<std::vector<double>> padded(static_cast<std::size_t>(size),
-                                            std::vector<double>(static_cast<std::size_t>(size), 0.0));
+    std::vector<double> padded(static_cast<std::size_t>(size) * size, 0.0);
     for (int row = 0; row < rows; ++row) {
         for (int column = 0; column < columns; ++column) {
             const double value = cost[static_cast<std::size_t>(row)][static_cast<std::size_t>(column)];
-            padded[static_cast<std::size_t>(row)][static_cast<std::size_t>(column)] =
+            padded[static_cast<std::size_t>(row) * size + column] =
                 value <= cost_limit ? value - cost_limit - 1e-12 : forbidden;
         }
     }
 
     // Giải bài toán vuông rồi đổi về chỉ số hàng/cột thật.
-    const std::vector<int> assignment = hungarian(padded);
+    const std::vector<int> assignment = hungarian(padded, size);
     std::vector<bool> matched_columns(static_cast<std::size_t>(columns), false);
     for (int row = 0; row < rows; ++row) {
         const int column = assignment[static_cast<std::size_t>(row)];

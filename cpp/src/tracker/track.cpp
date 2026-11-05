@@ -70,8 +70,9 @@ void Track::predict() {
     if (kalman_filter_ == nullptr || mean_.empty() || covariance_.empty()) {
         return;
     }
-    KalmanState state{mean_.clone(), covariance_.clone()};
+    KalmanState state{mean_, covariance_};
     if (state_ != TrackState::Tracked) {
+        state.mean = mean_.clone(); // Only the lost-track mean is modified before predict.
         state.mean.at<double>(6, 0) = 0.0;
         state.mean.at<double>(7, 0) = 0.0;
     }
@@ -85,8 +86,8 @@ void Track::applyWarp(const cv::Mat& warp) {
     if (mean_.empty() || covariance_.empty()) {
         return;
     }
-    const cv::Mat previous_mean = mean_.clone();
-    const cv::Mat previous_covariance = covariance_.clone();
+    const cv::Mat previous_mean = mean_;
+    const cv::Mat previous_covariance = covariance_;
     try {
         warpXywhState(mean_, covariance_, warp);
     } catch (const std::exception&) {
@@ -109,7 +110,7 @@ void Track::update(const Track& detection_track, int frame_id) {
     }
     const std::array<double, 4> measurement = xyxyToXywh(detection_track.bbox());
     const KalmanState updated = kalman_filter_->update(
-        KalmanState{mean_.clone(), covariance_.clone()}, measurement);
+        KalmanState{mean_, covariance_}, measurement);
     mean_ = updated.mean;
     covariance_ = updated.covariance;
     frame_id_ = frame_id;

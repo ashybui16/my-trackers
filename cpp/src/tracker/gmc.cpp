@@ -27,34 +27,38 @@ cv::Mat GMC::identityWarp() {
     return cv::Mat::eye(2, 3, CV_64F);
 }
 
-cv::Mat GMC::toGray(const cv::Mat& frame) const {
+cv::Mat GMC::toGray(const cv::Mat& frame) {
+    // A caller may retain a shallow snapshot through previousFrame().
+    if (current_frame_.u != nullptr && current_frame_.u->refcount > 1) current_frame_.release();
     // Đổi sang ảnh xám phù hợp optical flow rồi thu nhỏ để xử lý nhanh hơn.
     cv::Mat gray;
     if (frame.channels() == 1) {
         gray = frame;
     } else if (frame.channels() == 3) {
-        cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+        cv::Mat& destination = downscale_ > 1 ? gray_buffer_ : current_frame_;
+        cv::cvtColor(frame, destination, cv::COLOR_BGR2GRAY);
+        gray = destination;
     } else {
         throw std::invalid_argument("frame must have one grayscale or three BGR channels");
     }
     if (gray.depth() != CV_8U && gray.depth() != CV_32F) {
-        cv::Mat normalized;
-        cv::normalize(gray, normalized, 0.0, 255.0, cv::NORM_MINMAX, CV_8U);
-        gray = std::move(normalized);
+        cv::normalize(gray, normalized_buffer_, 0.0, 255.0, cv::NORM_MINMAX, CV_8U);
+        gray = normalized_buffer_;
     }
     if (downscale_ > 1) {
         const int width = std::max(1, gray.cols / downscale_);
         const int height = std::max(1, gray.rows / downscale_);
-        cv::Mat resized;
-        cv::resize(gray, resized, cv::Size(width, height));
-        gray = std::move(resized);
+        cv::resize(gray, current_frame_, cv::Size(width, height));
+        gray = current_frame_;
     }
-    return gray;
+    if (gray.data != current_frame_.data) gray.copyTo(current_frame_);
+    return current_frame_;
 }
 
 void GMC::remember(const cv::Mat& gray, const std::vector<cv::Point2f>& keypoints) {
-    // Lưu bản sao frame và các điểm để đối chiếu ở lần apply kế tiếp.
-    previous_frame_ = gray.clone();
+    // Giữ buffer nội bộ làm ảnh lịch sử; chỉ copy khi ảnh không thuộc workspace.
+    if (gray.data == current_frame_.data) std::swap(previous_frame_, current_frame_);
+    else previous_frame_ = gray.clone();
     previous_keypoints_ = keypoints;
     initialized_first_frame_ = true;
 }
@@ -72,7 +76,8 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
     }
 
     cv::Mat gray;
-    std::vector<cv::Point2f> keypoints;
+    auto& keypoints = keypoints_;
+    keypoints.clear();
     try {
         gray = toGray(frame);
         cv::goodFeaturesToTrack(gray, keypoints, 400, 0.01, 0.0, cv::Mat(), 3, false, 0.04);
@@ -92,12 +97,19 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
         }
 
         // Optical flow ghép điểm cũ với frame hiện tại; bỏ các điểm theo dõi lỗi.
-        std::vector<cv::Point2f> matched;
-        std::vector<unsigned char> status;
-        std::vector<float> error;
+        auto& matched = matched_;
+        auto& status = status_;
+        auto& error = error_;
+        matched.clear();
+        status.clear();
+        error.clear();
         cv::calcOpticalFlowPyrLK(previous_frame_, gray, previous_keypoints_, matched, status, error);
-        std::vector<cv::Point2f> previous_good;
-        std::vector<cv::Point2f> current_good;
+        auto& previous_good = previous_good_;
+        auto& current_good = current_good_;
+        previous_good.clear();
+        current_good.clear();
+        previous_good.reserve(status.size());
+        current_good.reserve(status.size());
         for (std::size_t index = 0; index < status.size() && index < matched.size(); ++index) {
             if (status[index] != 0) {
                 previous_good.push_back(previous_keypoints_[index]);
@@ -155,6 +167,11 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
 void GMC::reset() {
     // Bỏ lịch sử frame để lần apply sau bắt đầu từ ma trận đơn vị.
     previous_frame_.release();
+    current_frame_.release();
+    gray_buffer_.release();
+    normalized_buffer_.release();
+    keypoints_.clear(); matched_.clear(); status_.clear(); error_.clear();
+    previous_good_.clear(); current_good_.clear();
     previous_keypoints_.clear();
     initialized_first_frame_ = false;
 }

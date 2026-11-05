@@ -2,6 +2,7 @@
 
 #include "mot_tracker/geometry.hpp"
 
+#include <cmath>
 #include <unordered_set>
 
 namespace mot_tracker {
@@ -30,7 +31,15 @@ std::vector<std::vector<double>> trackDistance(const std::vector<TrackPtr>& trac
         for (const auto& detection : detections) {
             scores.push_back(detection->score());
         }
-        distances = fuseScore(distances, scores);
+        for (double score : scores) validateScore(score);
+        for (auto& row : distances) {
+            for (std::size_t column = 0; column < scores.size(); ++column) {
+                if (!std::isfinite(row[column])) {
+                    throw std::invalid_argument("cost matrix must contain only finite values");
+                }
+                row[column] = 1.0 - (1.0 - row[column]) * scores[column];
+            }
+        }
     }
     return distances;
 }
@@ -56,10 +65,12 @@ AssignmentResult associate(const std::vector<TrackPtr>& tracks,
 std::vector<TrackPtr> jointTracks(const std::vector<TrackPtr>& first,
                                   const std::vector<TrackPtr>& second) {
     std::unordered_set<int> ids;
+    ids.reserve(first.size() + second.size());
     for (const auto& track : first) {
         ids.insert(track->trackId());
     }
     std::vector<TrackPtr> result = first;
+    result.reserve(first.size() + second.size());
     for (const auto& track : second) {
         if (ids.insert(track->trackId()).second) {
             result.push_back(track);
@@ -71,6 +82,7 @@ std::vector<TrackPtr> jointTracks(const std::vector<TrackPtr>& first,
 std::vector<TrackPtr> subtractTracks(const std::vector<TrackPtr>& first,
                                      const std::vector<TrackPtr>& second) {
     std::unordered_set<int> ids;
+    ids.reserve(second.size());
     for (const auto& track : second) {
         ids.insert(track->trackId());
     }
@@ -102,12 +114,16 @@ DuplicateResult removeDuplicateTracks(const std::vector<TrackPtr>& tracked,
     if (tracked.empty() || lost.empty()) {
         return result;
     }
-    const auto distances = iouDistance(boxes(tracked), boxes(lost));
+    const auto tracked_boxes = boxes(tracked);
+    const auto lost_boxes = boxes(lost);
     std::unordered_set<int> drop_tracked;
     std::unordered_set<int> drop_lost;
+    drop_tracked.reserve(tracked.size());
+    drop_lost.reserve(lost.size());
     for (std::size_t tracked_index = 0; tracked_index < tracked.size(); ++tracked_index) {
         for (std::size_t lost_index = 0; lost_index < lost.size(); ++lost_index) {
-            if (distances[tracked_index][lost_index] >= 1.0 - iou_threshold) {
+            const double distance = 1.0F - static_cast<float>(iou(tracked_boxes[tracked_index], lost_boxes[lost_index]));
+            if (distance >= 1.0 - iou_threshold) {
                 continue;
             }
             const auto& active = tracked[tracked_index];

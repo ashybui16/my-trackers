@@ -1,16 +1,17 @@
 #include "mot_detector/detector.hpp"
 
 #include "detector/detector_postprocess.hpp"
+#include "detector/detector_preprocess.hpp"
 
 #include <NvInfer.h>
-#include <cuda_fp16.h>
 #include <cuda_runtime_api.h>
 
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
-#include <cstdint>
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -50,6 +51,52 @@ void checkCuda(cudaError_t status, const std::string& operation) {
     }
 }
 
+// Mỗi tài nguyên CUDA có một chủ sở hữu và tự giải phóng khi ra khỏi scope.
+class CudaBuffer {
+public:
+    CudaBuffer() = default;
+    CudaBuffer(const CudaBuffer&) = delete;
+    CudaBuffer& operator=(const CudaBuffer&) = delete;
+
+    ~CudaBuffer() {
+        if (data_ != nullptr) {
+            cudaFree(data_);
+        }
+    }
+
+    void allocate(std::size_t bytes, const std::string& label) {
+        if (data_ != nullptr) {
+            throw std::logic_error("CUDA buffer '" + label + "' is already allocated");
+        }
+        checkCuda(cudaMalloc(&data_, bytes), "cudaMalloc " + label);
+    }
+
+    void* data() const { return data_; }
+
+private:
+    void* data_{nullptr};
+};
+
+class CudaStream {
+public:
+    CudaStream() = default;
+    CudaStream(const CudaStream&) = delete;
+    CudaStream& operator=(const CudaStream&) = delete;
+
+    ~CudaStream() {
+        if (stream_ != nullptr) {
+            cudaStreamDestroy(stream_);
+        }
+    }
+
+    void create() { checkCuda(cudaStreamCreate(&stream_), "cudaStreamCreate"); }
+    void synchronize() const { checkCuda(cudaStreamSynchronize(stream_), "cudaStreamSynchronize"); }
+    cudaStream_t get() const { return stream_; }
+
+private:
+    cudaStream_t stream_{nullptr};
+};
+
 std::string dimsString(const nvinfer1::Dims& dims) {
     // Ghép các chiều tensor thành chuỗi để hiện trong thông báo lỗi.
     std::ostringstream stream;
@@ -64,311 +111,209 @@ std::string dimsString(const nvinfer1::Dims& dims) {
     return stream.str();
 }
 
-std::size_t elementCount(const nvinfer1::Dims& dims, const std::string& binding_name) {
-    // Nhân các chiều đã xác định để biết số phần tử cần cấp phát.
-    if (dims.nbDims <= 0) {
-        throw std::runtime_error("binding '" + binding_name + "' has invalid rank " + dimsString(dims));
-    }
-    std::size_t count = 1;
-    for (int index = 0; index < dims.nbDims; ++index) {
-        if (dims.d[index] <= 0) {
-            throw std::runtime_error("binding '" + binding_name + "' has unresolved dimensions " + dimsString(dims));
-        }
-        count *= static_cast<std::size_t>(dims.d[index]);
-    }
-    return count;
-}
+using detail::LetterboxInfo;
+using detail::preprocess;
 
-std::size_t dataTypeSize(nvinfer1::DataType type, const std::string& binding_name) {
-    // Chỉ engine FP32/FP16 được hỗ trợ khi tính byte cho binding.
-    if (type == nvinfer1::DataType::kFLOAT) {
-        return sizeof(float);
-    }
-    if (type == nvinfer1::DataType::kHALF) {
-        return sizeof(__half);
-    }
-    throw std::runtime_error("binding '" + binding_name + "' must use FP32 or FP16");
-}
-
-bool hasDynamicDimension(const nvinfer1::Dims& dims) {
-    // Chiều âm báo TensorRT cần gán kích thước runtime.
-    for (int index = 0; index < dims.nbDims; ++index) {
-        if (dims.d[index] < 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-nvinfer1::Dims makeInputDims(int height, int width) {
-    // Tạo kích thước NCHW cho một ảnh RGB.
-    nvinfer1::Dims dims{};
-    dims.nbDims = 4;
-    dims.d[0] = 1;
-    dims.d[1] = 3;
-    dims.d[2] = height;
-    dims.d[3] = width;
-    return dims;
-}
-
-void validateProfile(const nvinfer1::ICudaEngine& engine,
-                     int binding_index,
-                     const nvinfer1::Dims& target,
-                     const std::string& binding_name) {
-    // Đảm bảo kích thước ảnh nằm trong miền tối ưu của engine động.
-    if (engine.getNbOptimizationProfiles() <= 0) {
-        throw std::runtime_error("dynamic input binding '" + binding_name + "' has no optimization profile");
-    }
-    const auto minimum = engine.getProfileDimensions(
-        binding_index, 0, nvinfer1::OptProfileSelector::kMIN);
-    const auto maximum = engine.getProfileDimensions(
-        binding_index, 0, nvinfer1::OptProfileSelector::kMAX);
-    if (minimum.nbDims != target.nbDims || maximum.nbDims != target.nbDims) {
-        throw std::runtime_error("binding '" + binding_name + "' profile rank does not match input rank");
-    }
-    for (int index = 0; index < target.nbDims; ++index) {
-        if (target.d[index] < minimum.d[index] || target.d[index] > maximum.d[index]) {
-            std::ostringstream message;
-            message << "binding '" << binding_name << "' input dimension " << index
-                    << "=" << target.d[index] << " is outside optimization profile ["
-                    << minimum.d[index] << ',' << maximum.d[index] << ']';
-            throw std::runtime_error(message.str());
-        }
-    }
-}
-
-// Thông tin co giãn và đệm để đưa hộp dự đoán về tọa độ ảnh gốc.
-struct LetterboxInfo {
-    double scale{1.0};
-    int pad_x{0};
-    int pad_y{0};
-};
-
-// Chuẩn hóa frame thành tensor RGB dạng CHW trong khoảng [0, 1].
-std::vector<float> preprocess(const cv::Mat& frame,
-                              int input_width,
-                              int input_height,
-                              LetterboxInfo& info) {
-    // Đổi sang BGR 8 bit, giữ tỉ lệ bằng letterbox, rồi xếp RGB theo kênh.
-    if (frame.empty() || frame.dims != 2 || frame.rows < 1 || frame.cols < 1) {
-        throw std::invalid_argument("frame must be a non-empty image");
-    }
-    if (frame.channels() != 1 && frame.channels() != 3) {
-        throw std::invalid_argument("frame must have one grayscale or three BGR channels");
-    }
-    cv::Mat bgr;
-    if (frame.channels() == 1) {
-        cv::cvtColor(frame, bgr, cv::COLOR_GRAY2BGR);
-    } else {
-        bgr = frame;
-    }
-    if (bgr.depth() != CV_8U) {
-        cv::Mat converted;
-        double minimum = 0.0;
-        double maximum = 0.0;
-        cv::minMaxLoc(bgr.reshape(1), &minimum, &maximum);
-        if (std::isfinite(minimum) && std::isfinite(maximum) && maximum > minimum) {
-            bgr.convertTo(converted, CV_8UC3, 255.0 / (maximum - minimum),
-                          -minimum * 255.0 / (maximum - minimum));
+// Pinned transfers when available; pageable fallback only for allocation pressure.
+class HostFloatBuffer {
+public:
+    HostFloatBuffer() = default;
+    HostFloatBuffer(const HostFloatBuffer&) = delete;
+    HostFloatBuffer& operator=(const HostFloatBuffer&) = delete;
+    ~HostFloatBuffer() { if (pinned_) cudaFreeHost(data_); }
+    void allocate(std::size_t elements) {
+        void* memory = nullptr;
+        const auto status = cudaMallocHost(&memory, elements * sizeof(float));
+        if (status == cudaSuccess) {
+            data_ = static_cast<float*>(memory);
+            pinned_ = true;
+        } else if (status == cudaErrorMemoryAllocation) {
+            cudaGetLastError(); // Do not leave this handled allocation error pending.
+            fallback_.resize(elements);
+            data_ = fallback_.data();
         } else {
-            bgr.convertTo(converted, CV_8UC3);
+            checkCuda(status, "cudaMallocHost");
         }
-        bgr = std::move(converted);
+        size_ = elements;
     }
-
-    info.scale = std::min(static_cast<double>(input_width) / static_cast<double>(bgr.cols),
-                          static_cast<double>(input_height) / static_cast<double>(bgr.rows));
-    const int resized_width = std::max(1, static_cast<int>(std::round(bgr.cols * info.scale)));
-    const int resized_height = std::max(1, static_cast<int>(std::round(bgr.rows * info.scale)));
-    cv::Mat resized;
-    cv::resize(bgr, resized, cv::Size(resized_width, resized_height));
-    cv::Mat canvas(input_height, input_width, CV_8UC3, cv::Scalar(114, 114, 114));
-    info.pad_x = (input_width - resized_width) / 2;
-    info.pad_y = (input_height - resized_height) / 2;
-    resized.copyTo(canvas(cv::Rect(info.pad_x, info.pad_y, resized_width, resized_height)));
-
-    std::vector<float> chw(static_cast<std::size_t>(3) * input_height * input_width);
-    const std::size_t plane = static_cast<std::size_t>(input_height) * input_width;
-    for (int row = 0; row < input_height; ++row) {
-        for (int column = 0; column < input_width; ++column) {
-            const cv::Vec3b pixel = canvas.at<cv::Vec3b>(row, column);
-            const std::size_t offset = static_cast<std::size_t>(row) * input_width + column;
-            chw[offset] = static_cast<float>(pixel[2]) / 255.0F;
-            chw[plane + offset] = static_cast<float>(pixel[1]) / 255.0F;
-            chw[2 * plane + offset] = static_cast<float>(pixel[0]) / 255.0F;
-        }
-    }
-    return chw;
-}
+    float* data() const { return data_; }
+    std::size_t size() const { return size_; }
+    bool pinned() const { return pinned_; }
+private:
+    float* data_{nullptr};
+    std::size_t size_{0};
+    bool pinned_{false};
+    std::vector<float> fallback_;
+};
 
 }  // namespace
 
 struct TensorRTDetector::Impl {
-    // Tài nguyên TensorRT và luồng CUDA sở hữu trong suốt vòng đời detector.
+    // Runtime và engine phải sống lâu hơn context.
     TensorRTLogger logger;
     TensorRTPtr<nvinfer1::IRuntime> runtime{nullptr};
     TensorRTPtr<nvinfer1::ICudaEngine> engine{nullptr};
     TensorRTPtr<nvinfer1::IExecutionContext> context{nullptr};
-    cudaStream_t stream{nullptr};
-    // Bộ đệm trên GPU và dung lượng đã cấp để tái sử dụng giữa các frame.
-    void* device_input{nullptr};
-    void* device_output{nullptr};
-    std::size_t device_input_bytes{0};
-    std::size_t device_output_bytes{0};
-    // Chỉ số, tên, kiểu và kích thước tensor của hai binding engine.
+    // Hai binding FP32 có shape cố định; output raw YOLO dạng feature-first.
     int input_binding_index{-1};
     int output_binding_index{-1};
     std::string input_binding_name;
     std::string output_binding_name;
-    nvinfer1::DataType input_type{nvinfer1::DataType::kFLOAT};
-    nvinfer1::DataType output_type{nvinfer1::DataType::kFLOAT};
-    nvinfer1::Dims input_dims{};
-    nvinfer1::Dims output_dims{};
-    // Bộ đệm CPU cho dữ liệu FP32/FP16 trước và sau suy luận.
-    std::vector<float> host_input;
-    std::vector<float> host_output_float;
-    std::vector<__half> host_input_half;
-    std::vector<__half> host_output_half;
-    std::vector<void*> bindings;
+    int candidate_count{0};
+    std::size_t input_elements{0};
+    std::size_t output_elements{0};
+    std::array<void*, 2> bindings{};
 
-    ~Impl() {
-        // Giải phóng bộ đệm GPU và stream khi detector kết thúc.
-        if (device_input != nullptr) {
-            cudaFree(device_input);
-        }
-        if (device_output != nullptr) {
-            cudaFree(device_output);
-        }
-        if (stream != nullptr) {
-            cudaStreamDestroy(stream);
-        }
-    }
+    // Bộ đệm CPU được giữ tới khi CUDA stream hoàn tất.
+    HostFloatBuffer host_input;
+    HostFloatBuffer host_output;
+    detail::OutputWorkspace output_workspace;
+    cv::Mat canvas;
 
-    // Chỉ cấp phát lại bộ đệm GPU khi dung lượng hiện tại không đủ.
-    void allocate(void** pointer, std::size_t& current_size, std::size_t required, const std::string& label) {
-        // Giữ bộ đệm cũ nếu đủ lớn, nếu không thì giải phóng và cấp lại.
-        if (current_size >= required && *pointer != nullptr) {
-            return;
-        }
-        if (*pointer != nullptr) {
-            checkCuda(cudaFree(*pointer), "cudaFree " + label);
-            *pointer = nullptr;
-            current_size = 0;
-        }
-        checkCuda(cudaMalloc(pointer, required), "cudaMalloc " + label);
-        current_size = required;
-    }
+    // Hủy tài nguyên GPU trước bộ đệm CPU, kể cả khi có ngoại lệ trong lúc truyền dữ liệu.
+    CudaStream stream;
+    CudaBuffer device_output;
+    CudaBuffer device_input;
+
+    void loadEngine(const std::string& engine_path);
+    void initializeBindings(const DetectorConfig& config);
+    void allocateBuffers(const DetectorConfig& config);
+
+    void uploadInput();
+    void execute();
+    void downloadOutput();
+    std::vector<mot_tracker::Detection> decodeOutput(const cv::Size& frame_size,
+                                                    const LetterboxInfo& letterbox,
+                                                    const DetectorConfig& config);
 };
 
-void DetectorConfig::validate() const {
-    // Kiểm tra kích thước ảnh, số lớp và các ngưỡng trước khi nạp engine.
-    if (input_width <= 0 || input_height <= 0) {
-        throw std::invalid_argument("detector input dimensions must be positive");
-    }
-    if (!std::isfinite(conf_threshold) || conf_threshold < 0.0 || conf_threshold > 1.0) {
-        throw std::invalid_argument("conf_threshold must be finite and in [0, 1]");
-    }
-    if (!std::isfinite(iou_threshold) || iou_threshold < 0.0 || iou_threshold > 1.0) {
-        throw std::invalid_argument("iou_threshold must be finite and in [0, 1]");
-    }
-    if (max_det <= 0 || class_count <= 0) {
-        throw std::invalid_argument("max_det and class_count must be positive");
-    }
-}
-
-TensorRTDetector::TensorRTDetector(const std::string& engine_path, DetectorConfig config)
-    : config_(std::move(config)), engine_path_(engine_path), impl_(std::make_unique<Impl>()) {
-    // Đọc engine, tạo runtime/context, kiểm tra binding và cấp bộ đệm GPU.
-    config_.validate();
-    std::ifstream file(engine_path_, std::ios::binary | std::ios::ate);
+void TensorRTDetector::Impl::loadEngine(const std::string& engine_path) {
+    std::ifstream file(engine_path, std::ios::binary | std::ios::ate);
     if (!file) {
-        throw std::runtime_error("cannot open TensorRT engine: " + engine_path_);
+        throw std::runtime_error("cannot open TensorRT engine: " + engine_path);
     }
     const std::streamsize size = file.tellg();
     if (size <= 0) {
-        throw std::runtime_error("TensorRT engine is empty: " + engine_path_);
+        throw std::runtime_error("TensorRT engine is empty: " + engine_path);
     }
     file.seekg(0, std::ios::beg);
     std::vector<char> serialized(static_cast<std::size_t>(size));
     if (!file.read(serialized.data(), size)) {
-        throw std::runtime_error("cannot read TensorRT engine: " + engine_path_);
+        throw std::runtime_error("cannot read TensorRT engine: " + engine_path);
     }
 
-    impl_->runtime.reset(nvinfer1::createInferRuntime(impl_->logger));
-    if (!impl_->runtime) {
+    runtime.reset(nvinfer1::createInferRuntime(logger));
+    if (!runtime) {
         throw std::runtime_error("TensorRT runtime creation failed; check TensorRT/CUDA installation");
     }
-    impl_->engine.reset(impl_->runtime->deserializeCudaEngine(serialized.data(), serialized.size()));
-    if (!impl_->engine) {
+    engine.reset(runtime->deserializeCudaEngine(serialized.data(), serialized.size()));
+    if (!engine) {
         throw std::runtime_error("TensorRT engine deserialization failed; serialized engines are tied to the target GPU and TensorRT version, so rebuild the engine");
     }
-    impl_->context.reset(impl_->engine->createExecutionContext());
-    if (!impl_->context) {
+    context.reset(engine->createExecutionContext());
+    if (!context) {
         throw std::runtime_error("TensorRT execution context creation failed");
     }
+}
 
-    // Tìm đúng một binding đầu vào và một binding đầu ra trong profile đầu tiên.
-    const int total_bindings = impl_->engine->getNbBindings();
-    const int profiles = std::max(1, impl_->engine->getNbOptimizationProfiles());
-    const int bindings_per_profile = total_bindings / profiles;
-    for (int index = 0; index < bindings_per_profile; ++index) {
-        const char* raw_name = impl_->engine->getBindingName(index);
+void TensorRTDetector::Impl::initializeBindings(const DetectorConfig& config) {
+    if (engine->hasImplicitBatchDimension() || engine->getNbBindings() != 2) {
+        throw std::runtime_error("engine must have explicit batch and exactly one input and one output binding");
+    }
+    for (int index = 0; index < 2; ++index) {
+        const char* raw_name = engine->getBindingName(index);
         const std::string name = raw_name == nullptr ? "<unnamed>" : raw_name;
-        if (impl_->engine->bindingIsInput(index)) {
-            if (impl_->input_binding_index >= 0) {
-                throw std::runtime_error("engine must contain exactly one input binding; duplicate input '" + name + "'");
+        if (engine->getBindingDataType(index) != nvinfer1::DataType::kFLOAT ||
+            engine->getBindingFormat(index) != nvinfer1::TensorFormat::kLINEAR ||
+            engine->getLocation(index) != nvinfer1::TensorLocation::kDEVICE) {
+            throw std::runtime_error("binding '" + name + "' must use linear FP32 device storage");
+        }
+        if (engine->bindingIsInput(index)) {
+            if (input_binding_index >= 0) {
+                throw std::runtime_error("engine must contain exactly one input binding");
             }
-            impl_->input_binding_index = index;
-            impl_->input_binding_name = name;
+            input_binding_index = index;
+            input_binding_name = name;
         } else {
-            if (impl_->output_binding_index >= 0) {
-                throw std::runtime_error("engine must contain exactly one output binding; duplicate output '" + name + "'");
+            if (output_binding_index >= 0) {
+                throw std::runtime_error("engine must contain exactly one output binding");
             }
-            impl_->output_binding_index = index;
-            impl_->output_binding_name = name;
+            output_binding_index = index;
+            output_binding_name = name;
         }
     }
-    if (impl_->input_binding_index < 0 || impl_->output_binding_index < 0) {
-        throw std::runtime_error("TensorRT engine must contain one input and one output binding");
+    if (input_binding_index < 0 || output_binding_index < 0) {
+        throw std::runtime_error("engine must contain one input and one output binding");
     }
-    impl_->input_type = impl_->engine->getBindingDataType(impl_->input_binding_index);
-    impl_->output_type = impl_->engine->getBindingDataType(impl_->output_binding_index);
-    dataTypeSize(impl_->input_type, impl_->input_binding_name);
-    dataTypeSize(impl_->output_type, impl_->output_binding_name);
-    impl_->input_dims = impl_->engine->getBindingDimensions(impl_->input_binding_index);
-    if (impl_->input_dims.nbDims != 4) {
-        throw std::runtime_error("input binding '" + impl_->input_binding_name + "' must be NCHW rank 4, got " + dimsString(impl_->input_dims));
+
+    const auto input_dims = engine->getBindingDimensions(input_binding_index);
+    if (input_dims.nbDims != 4 || input_dims.d[0] != 1 || input_dims.d[1] != 3 ||
+        input_dims.d[2] != config.input_height || input_dims.d[3] != config.input_width) {
+        throw std::runtime_error("input binding '" + input_binding_name + "' must have fixed shape [1,3," +
+                                 std::to_string(config.input_height) + "," + std::to_string(config.input_width) +
+                                 "], got " + dimsString(input_dims));
     }
-    if ((impl_->input_dims.d[0] != 1 && impl_->input_dims.d[0] != -1) ||
-        (impl_->input_dims.d[1] != 3 && impl_->input_dims.d[1] != -1)) {
-        throw std::runtime_error("input binding '" + impl_->input_binding_name + "' must be batch-1 RGB NCHW, got " + dimsString(impl_->input_dims));
+    const auto output_dims = engine->getBindingDimensions(output_binding_index);
+    if (output_dims.nbDims != 3 || output_dims.d[0] != 1 ||
+        output_dims.d[1] != 4 + config.class_count || output_dims.d[2] <= 0) {
+        throw std::runtime_error("output binding '" + output_binding_name + "' must have fixed shape [1," +
+                                 std::to_string(4 + config.class_count) + ",N], got " + dimsString(output_dims));
     }
-    // Áp kích thước yêu cầu cho engine động hoặc kiểm tra engine kích thước cố định.
-    const nvinfer1::Dims requested = makeInputDims(config_.input_height, config_.input_width);
-    if (hasDynamicDimension(impl_->input_dims)) {
-        validateProfile(*impl_->engine, impl_->input_binding_index, requested, impl_->input_binding_name);
-        if (!impl_->context->setBindingDimensions(impl_->input_binding_index, requested)) {
-            throw std::runtime_error("could not set dynamic dimensions for input binding '" + impl_->input_binding_name + "'");
-        }
-    } else {
-        if (impl_->input_dims.d[0] != requested.d[0] || impl_->input_dims.d[1] != requested.d[1] ||
-            impl_->input_dims.d[2] != requested.d[2] || impl_->input_dims.d[3] != requested.d[3]) {
-            throw std::runtime_error("static input binding '" + impl_->input_binding_name + "' has shape " +
-                                     dimsString(impl_->input_dims) + ", requested [1,3," +
-                                     std::to_string(config_.input_height) + "," +
-                                     std::to_string(config_.input_width) + "]");
-        }
+    candidate_count = output_dims.d[2];
+    input_elements = static_cast<std::size_t>(3) * config.input_height * config.input_width;
+    output_elements = static_cast<std::size_t>(output_dims.d[1]) * candidate_count;
+}
+
+void TensorRTDetector::Impl::allocateBuffers(const DetectorConfig& config) {
+    host_input.allocate(input_elements);
+    host_output.allocate(output_elements);
+    if (!host_input.pinned() || !host_output.pinned())
+        std::cerr << "TensorRT: pinned host allocation exhausted; using pageable transfer buffer\n";
+    canvas.create(config.input_height, config.input_width, CV_8UC3);
+    device_input.allocate(input_elements * sizeof(float), "input");
+    device_output.allocate(output_elements * sizeof(float), "output");
+    stream.create();
+    bindings[static_cast<std::size_t>(input_binding_index)] = device_input.data();
+    bindings[static_cast<std::size_t>(output_binding_index)] = device_output.data();
+}
+
+void TensorRTDetector::Impl::uploadInput() {
+    checkCuda(cudaMemcpyAsync(device_input.data(), host_input.data(), host_input.size() * sizeof(float),
+                              cudaMemcpyHostToDevice, stream.get()),
+              "cudaMemcpyAsync input");
+}
+
+void TensorRTDetector::Impl::execute() {
+    if (!context->enqueueV2(bindings.data(), stream.get(), nullptr)) {
+        throw std::runtime_error("TensorRT enqueue failed for bindings '" + input_binding_name + "' -> '" +
+                                 output_binding_name + "'");
     }
-    impl_->output_dims = impl_->context->getBindingDimensions(impl_->output_binding_index);
-    const std::size_t input_elements = elementCount(impl_->context->getBindingDimensions(impl_->input_binding_index),
-                                                    impl_->input_binding_name);
-    const std::size_t output_elements = elementCount(impl_->output_dims, impl_->output_binding_name);
-    impl_->allocate(&impl_->device_input, impl_->device_input_bytes,
-                    input_elements * dataTypeSize(impl_->input_type, impl_->input_binding_name), "input");
-    impl_->allocate(&impl_->device_output, impl_->device_output_bytes,
-                    output_elements * dataTypeSize(impl_->output_type, impl_->output_binding_name), "output");
-    checkCuda(cudaStreamCreate(&impl_->stream), "cudaStreamCreate");
-    impl_->bindings.assign(static_cast<std::size_t>(total_bindings), nullptr);
+}
+
+void TensorRTDetector::Impl::downloadOutput() {
+    checkCuda(cudaMemcpyAsync(host_output.data(), device_output.data(), host_output.size() * sizeof(float),
+                              cudaMemcpyDeviceToHost, stream.get()),
+              "cudaMemcpyAsync output");
+    stream.synchronize();
+}
+
+std::vector<mot_tracker::Detection> TensorRTDetector::Impl::decodeOutput(
+    const cv::Size& frame_size, const LetterboxInfo& letterbox, const DetectorConfig& config) {
+    detail::OutputOptions options;
+    options.class_count = config.class_count;
+    options.conf_threshold = config.conf_threshold;
+    options.iou_threshold = config.iou_threshold;
+    options.max_det = config.max_det;
+    options.transform = {letterbox.scale, letterbox.pad_x, letterbox.pad_y, frame_size.width, frame_size.height};
+    return detail::processOutput(host_output.data(), candidate_count, options, output_workspace);
+}
+
+TensorRTDetector::TensorRTDetector(const std::string& engine_path, DetectorConfig config)
+    : config_(std::move(config)), engine_path_(engine_path), impl_(std::make_unique<Impl>()) {
+    config_.validate();
+    impl_->loadEngine(engine_path_);
+    impl_->initializeBindings(config_);
+    impl_->allocateBuffers(config_);
 }
 
 TensorRTDetector::~TensorRTDetector() = default;
@@ -386,75 +331,11 @@ const std::string& TensorRTDetector::outputBindingName() const {
 }
 
 std::vector<mot_tracker::Detection> TensorRTDetector::infer(const cv::Mat& frame) {
-    // Chuẩn bị ảnh, chép input lên GPU và chạy engine trên CUDA stream.
-    LetterboxInfo letterbox;
-    const std::vector<float> input = preprocess(frame, config_.input_width, config_.input_height, letterbox);
-    const std::size_t input_elements = input.size();
-    if (impl_->input_type == nvinfer1::DataType::kFLOAT) {
-        impl_->host_input = input;
-        checkCuda(cudaMemcpyAsync(impl_->device_input,
-                                  impl_->host_input.data(),
-                                  input_elements * sizeof(float),
-                                  cudaMemcpyHostToDevice,
-                                  impl_->stream),
-                  "cudaMemcpyAsync input");
-    } else {
-        impl_->host_input_half.resize(input_elements);
-        for (std::size_t index = 0; index < input_elements; ++index) {
-            impl_->host_input_half[index] = __float2half(input[index]);
-        }
-        checkCuda(cudaMemcpyAsync(impl_->device_input,
-                                  impl_->host_input_half.data(),
-                                  input_elements * sizeof(__half),
-                                  cudaMemcpyHostToDevice,
-                                  impl_->stream),
-                  "cudaMemcpyAsync FP16 input");
-    }
-
-    impl_->bindings[static_cast<std::size_t>(impl_->input_binding_index)] = impl_->device_input;
-    impl_->bindings[static_cast<std::size_t>(impl_->output_binding_index)] = impl_->device_output;
-    if (!impl_->context->enqueueV2(impl_->bindings.data(), impl_->stream, nullptr)) {
-        throw std::runtime_error("TensorRT enqueue failed for bindings '" + impl_->input_binding_name + "' -> '" +
-                                 impl_->output_binding_name + "'");
-    }
-    // Chép output về CPU, đổi FP16 sang FP32 khi cần.
-    const std::size_t output_elements = elementCount(impl_->output_dims, impl_->output_binding_name);
-    if (impl_->output_type == nvinfer1::DataType::kFLOAT) {
-        impl_->host_output_float.resize(output_elements);
-        checkCuda(cudaMemcpyAsync(impl_->host_output_float.data(),
-                                  impl_->device_output,
-                                  output_elements * sizeof(float),
-                                  cudaMemcpyDeviceToHost,
-                                  impl_->stream),
-                  "cudaMemcpyAsync output");
-        checkCuda(cudaStreamSynchronize(impl_->stream), "cudaStreamSynchronize");
-    } else {
-        impl_->host_output_half.resize(output_elements);
-        checkCuda(cudaMemcpyAsync(impl_->host_output_half.data(),
-                                  impl_->device_output,
-                                  output_elements * sizeof(__half),
-                                  cudaMemcpyDeviceToHost,
-                                  impl_->stream),
-                  "cudaMemcpyAsync FP16 output");
-        checkCuda(cudaStreamSynchronize(impl_->stream), "cudaStreamSynchronize");
-        impl_->host_output_float.resize(output_elements);
-        for (std::size_t index = 0; index < output_elements; ++index) {
-            impl_->host_output_float[index] = __half2float(impl_->host_output_half[index]);
-        }
-    }
-    const std::vector<float>& output = impl_->host_output_float;
-
-    const nvinfer1::Dims dims = impl_->output_dims;
-    if (dims.nbDims != 3 || dims.d[0] != 1) {
-        throw std::runtime_error("output binding '" + impl_->output_binding_name + "' must be rank-3 batch-1 [1,14,N], [1,N,14], or [1,N,6], got " + dimsString(dims));
-    }
-    detail::OutputOptions options;
-    options.class_count = config_.class_count;
-    options.conf_threshold = config_.conf_threshold;
-    options.iou_threshold = config_.iou_threshold;
-    options.max_det = config_.max_det;
-    options.transform = {letterbox.scale, letterbox.pad_x, letterbox.pad_y, frame.cols, frame.rows};
-    return detail::processOutput(output.data(), dims.d[1], dims.d[2], options);
+    const LetterboxInfo letterbox = preprocess(frame, impl_->canvas, impl_->host_input.data());
+    impl_->uploadInput();
+    impl_->execute();
+    impl_->downloadOutput();
+    return impl_->decodeOutput(frame.size(), letterbox, config_);
 }
 
 }  // namespace mot_inference
