@@ -21,8 +21,9 @@ int main(int argc, char** argv) {
         const auto shipped = mot::PipelineConfig::fromFile(argv[1]);
         expect(shipped.detector.input_width == 640 &&
                std::get<mot::BoTSORTConfig>(shipped.tracker).fuse_score, "shipped YAML values");
-        expect(shipped.class_names.size() == 10 && shipped.class_names[0] == "pedestrian",
-               "shipped class names");
+        expect(shipped.class_names.size() == 10 && shipped.class_names[0] == "pedestrian" &&
+               shipped.class_names[9] == "motor" && shipped.detector.class_count == 10,
+               "shipped class names define class_count");
         expect(std::filesystem::path(shipped.engine_path).is_absolute(), "resolved shipped engine path");
         struct TemporaryDirectory {
             std::filesystem::path path = std::filesystem::temp_directory_path() /
@@ -94,6 +95,16 @@ tracker:
         const auto from_file =
             load("detector: { class_count: 2, class_names: names.yaml }\ntracker: {}\n");
         expect(from_file.class_names == std::vector<std::string>{"cat", "dog"}, "class names file");
+        const auto inferred = load("detector: { class_names: [\"x\", \"y\", \"z\"] }\ntracker: {}\n");
+        expect(inferred.detector.class_count == 3 && inferred.class_names.size() == 3,
+               "class_count inferred from inline names");
+        const auto commented = load("detector:\n  class_names:\n    - a#b   # 0\n    - c\ntracker: {}\n");
+        expect(commented.class_names == std::vector<std::string>{"a#b", "c"},
+               "YAML comments stripped from class names");
+        const auto inferred_file = load("detector: { class_names: names.yaml }\ntracker: {}\n");
+        expect(inferred_file.detector.class_count == 2, "class_count inferred from names file");
+        expect(load("detector: {}\ntracker: {}\n").detector.class_count == 10,
+               "class_count default without names");
         expect(load("detector: {}\ntracker: {}\n").engine_path.empty(), "engine path is optional");
         expect(load("---\ndetector: {}\ntracker: {}\n").detector.max_det == 300, "optional defaults");
         expect(std::get<mot::BoTSORTConfig>(

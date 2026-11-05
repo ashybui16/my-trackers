@@ -20,7 +20,7 @@ mot_add_test(config
 mot_add_test(annotator
     SOURCES visualization/test_annotator.cpp
     LIBS mot_visualization mot_pipeline
-    ARGS "${MOT_REPO_WEIGHTS}/visdrone.yaml"
+    ARGS "${MOT_REPO_WEIGHTS}/config.yaml"
     LABELS "visualization;cpu")
 mot_add_test(postprocess
     SOURCES tensorrt/test_postprocess.cpp

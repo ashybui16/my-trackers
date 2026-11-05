@@ -18,7 +18,9 @@ struct PipelineConfig {
     TrackerConfig tracker{};
 
     // Đọc YAML dạng:
-    //   detector: { engine_path, class_names, input_width, ... }
+    //   detector: { engine_path, class_names: [pedestrian, ...], input_width, ... }
+    // class_names là danh sách hoặc đường dẫn YAML dataset; bỏ class_count thì
+    // class_count = số tên lớp.
     //   tracker:  { type: botsort, botsort: { ... } }
     // `tracker` không có `type` và chứa khóa BoT-SORT phẳng vẫn được chấp nhận.
     static PipelineConfig fromFile(const std::string& path);

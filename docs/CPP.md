@@ -110,8 +110,8 @@ section of the same name:
 ```yaml
 detector:
   engine_path: "26leaf1.engine"   # optional for apps that use another IDetector
-  class_names: "visdrone.yaml"    # Ultralytics dataset YAML, or an inline list
-  class_count: 10
+  class_names: [pedestrian, people, bicycle, ...]  # index = class_id
+  # class_count: 10  # optional; defaults to the number of class_names
 tracker:
   type: botsort
   botsort: { track_high_thresh: 0.40, track_buffer: 90, ... }
@@ -129,6 +129,9 @@ overrides the number of detector classes. `--tracker TYPE` selects another track
 (its defaults are used unless the YAML type matches). Both `detector` and `tracker` mappings
 are required; omitted fields use C++ defaults. Unknown/duplicate keys, wrong types
 and invalid settings fail with a message containing the config path.
+
+`detector.class_names` may also be a path to an Ultralytics dataset YAML
+(`names: {0: ..., 1: ...}`), resolved against the config directory.
 
 `Annotator` is independent of inference. It takes the class names (from
 `detector.class_names` or `mot::loadClassNames()`), uses a color per class, and

@@ -44,7 +44,6 @@ Thumbs.db
 /runs/
 /weights/*
 !/weights/config.yaml
-!/weights/visdrone.yaml
 /checkpoints/
 *.pt
 *.pth

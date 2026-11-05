@@ -9,6 +9,7 @@
 #include <regex>
 #include <set>
 #include <stdexcept>
+#include <utility>
 #include <variant>
 
 namespace mot {
@@ -132,8 +133,19 @@ std::vector<std::string> readClassNames(const cv::FileNode& node,
     std::vector<std::string> names;
     for (const auto& entry : node) {
         if (!entry.isString()) throw std::invalid_argument("class_names entries must be strings");
-        names.push_back(static_cast<std::string>(entry));
+        // OpenCV keeps trailing "# comment" in plain scalars; YAML treats " #" as a comment.
+        std::string name = static_cast<std::string>(entry);
+        for (std::size_t i = 0; i < name.size(); ++i) {
+            if (name[i] == '#' && (i == 0 || name[i - 1] == ' ' || name[i - 1] == '\t')) {
+                name.erase(i);
+                break;
+            }
+        }
+        name = trim(name);
+        if (name.empty()) throw std::invalid_argument("class_names entries must not be empty");
+        names.push_back(std::move(name));
     }
+    if (class_count <= 0) return names;  // class_count is inferred from the list.
     if (static_cast<int>(names.size()) > class_count) {
         throw std::invalid_argument("class_names has more entries than class_count");
     }
@@ -214,9 +226,14 @@ PipelineConfig PipelineConfig::fromFile(const std::string& path) {
         readValue(detector_node, "conf_threshold", config.detector.conf_threshold);
         readValue(detector_node, "iou_threshold", config.detector.iou_threshold);
         readValue(detector_node, "max_det", config.detector.max_det);
-        config.detector.validate();
+        // class_count may be omitted when class_names is given; it is then the number of names.
+        const bool has_class_count = !detector_node["class_count"].isNone();
         config.class_names = readClassNames(detector_node["class_names"], directory,
-                                            config.detector.class_count);
+                                            has_class_count ? config.detector.class_count : 0);
+        if (!has_class_count && !config.class_names.empty()) {
+            config.detector.class_count = static_cast<int>(config.class_names.size());
+        }
+        config.detector.validate();
         config.tracker = readTrackerConfig(storage["tracker"]);
         validate(config.tracker);
         // engine_path là tùy chọn: ứng dụng dùng detector khác có thể bỏ qua nó.

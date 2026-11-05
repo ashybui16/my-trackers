@@ -1,10 +1,20 @@
 # Paths are relative to this configuration file. CLI flags override these values.
 detector:
   engine_path: "26leaf1.engine"
-  class_names: "visdrone.yaml"
+  # Index = class_id. class_count is inferred from this list (set it to override).
+  class_names:
+    - pedestrian       # 0
+    - people           # 1
+    - bicycle          # 2
+    - car              # 3
+    - van              # 4
+    - truck            # 5
+    - tricycle         # 6
+    - awning-tricycle  # 7
+    - bus              # 8
+    - motor            # 9
   input_width: 640
   input_height: 640
-  class_count: 10
   conf_threshold: 0.20
   iou_threshold: 0.70
   max_det: 300

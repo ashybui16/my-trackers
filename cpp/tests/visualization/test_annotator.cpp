@@ -7,8 +7,8 @@
 
 int main(int argc, char** argv) {
     try {
-        if (argc != 2) throw std::runtime_error("pass a class-names YAML path");
-        const auto names = mot::loadClassNames(argv[1], 10);
+        if (argc != 2) throw std::runtime_error("pass the repository config.yaml path");
+        const auto names = mot::PipelineConfig::fromFile(argv[1]).class_names;
         if (names.size() != 10 || names[3] != "car")
             throw std::runtime_error("class names were not loaded from YAML");
         if (mot::Annotator().classNames().size() != 0)
