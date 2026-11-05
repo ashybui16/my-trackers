@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 
 from mot_tracker import BoTSORT, BoTSORTConfig, Detection, TrackOutput
-from mot_tracker.assignment import linear_assignment
-from mot_tracker.geometry import iou_distance, iou_matrix, xywh_to_xyxy
-from mot_tracker.kalman_filter import KalmanFilterXYWH
-from mot_tracker.track import Track, TrackState
+from mot_tracker.common.assignment import linear_assignment
+from mot_tracker.common.geometry import iou_distance, iou_matrix, xywh_to_xyxy
+from mot_tracker.common.kalman_filter import KalmanFilterXYWH
+from mot_tracker.common.track import Track, TrackState
 
 
 def detection(x: float = 0.0, *, score: float = 0.9, class_id: int = 0) -> Detection:
@@ -124,7 +124,7 @@ def test_package_does_not_import_ultralytics() -> None:
 
 def test_sparse_gmc_synthetic_translation_and_reset() -> None:
     cv2 = pytest.importorskip("cv2")
-    from mot_tracker.gmc import GMC, IDENTITY_WARP
+    from mot_tracker.common.gmc import GMC, IDENTITY_WARP
 
     frame = np.zeros((160, 200), dtype=np.uint8)
     for x in range(15, 190, 20):
@@ -152,7 +152,7 @@ def test_sparse_gmc_synthetic_translation_and_reset() -> None:
     ],
 )
 def test_iou_matches_ultralytics_and_cpp_golden(first, second, overlap, distance) -> None:
-    # Golden values shared with cpp/tests/tracker/test_mot_tracker.cpp.
+    # Golden values shared with cpp/tests/tracking/test_botsort.cpp.
     overlaps = iou_matrix([first], [second])
     distances = iou_distance([first], [second])
     assert overlaps.dtype == distances.dtype == np.float32

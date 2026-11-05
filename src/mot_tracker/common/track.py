@@ -9,7 +9,7 @@ import numpy as np
 
 from .geometry import warp_xywh_state, xywh_to_xyxy, xyxy_to_xywh
 from .kalman_filter import KalmanFilterXYWH
-from .types import Detection
+from ..types import Detection
 
 
 class TrackState(IntEnum):

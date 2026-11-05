@@ -6,15 +6,16 @@ from typing import Iterable
 
 import numpy as np
 
-from .association import associate, apply_gmc, joint_tracks, remove_duplicate_tracks, subtract_tracks
+from ...base import Tracker
+from ...common.association import associate, apply_gmc, joint_tracks, remove_duplicate_tracks, subtract_tracks
+from ...common.gmc import GMC
+from ...common.kalman_filter import KalmanFilterXYWH
+from ...common.track import Track, TrackState
+from ...types import Detection, TrackOutput
 from .config import BoTSORTConfig
-from .gmc import GMC
-from .kalman_filter import KalmanFilterXYWH
-from .track import Track, TrackState
-from .types import Detection, TrackOutput
 
 
-class BoTSORT:
+class BoTSORT(Tracker):
     """Detector-agnostic baseline BoT-SORT tracker."""
 
     def __init__(self, config: BoTSORTConfig | None = None) -> None:
@@ -28,6 +29,10 @@ class BoTSORT:
         self.frame_id = 0
         self._next_track_id = 1
         self.kalman_filter = KalmanFilterXYWH()
+
+    @property
+    def name(self) -> str:
+        return BoTSORTConfig.TYPE
 
     # Internal names used by the reference implementation are exposed as
     # read/write aliases for debugging and lifecycle fixtures only.

@@ -1,82 +1,74 @@
-"""Configuration for the standalone tracker."""
+"""Tracker config selection (mirrors ``cpp/include/mot/tracking/config.hpp``).
+
+``tracker_config_from_mapping`` reads the ``tracker`` section of
+``weights/config.yaml`` with the same rules as ``readTrackerConfig`` in
+``cpp/src/pipeline/config.cpp``.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from numbers import Integral, Real
-from typing import Any, Mapping
+from dataclasses import fields
+from typing import Any, Mapping, Union
+
+from .trackers.botsort.config import BoTSORTConfig
+
+# Add each new tracker's config class here (and to the factory registry).
+TrackerConfig = Union[BoTSORTConfig]
+CONFIG_TYPES: tuple[type, ...] = (BoTSORTConfig,)
 
 
-def _probability(value: Any, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise TypeError(f"{name} must be a real number")
-    result = float(value)
-    if not 0.0 <= result <= 1.0:
-        raise ValueError(f"{name} must be in [0, 1]")
-    return result
+def tracker_type(config: TrackerConfig) -> str:
+    return _check_config(config).TYPE
 
 
-@dataclass(frozen=True, slots=True)
-class BoTSORTConfig:
-    """Supported baseline BoT-SORT settings.
+def default_tracker_config(type_name: str) -> TrackerConfig:
+    for cls in CONFIG_TYPES:
+        if cls.TYPE == type_name:
+            return cls()
+    known = ", ".join(cls.TYPE for cls in CONFIG_TYPES)
+    raise ValueError(f"unknown tracker type '{type_name}' (available: {known})")
 
-    The configuration intentionally has no ReID, detector, Torch or framework
-    fields.  Those concerns belong to the caller.
+
+def validate(config: TrackerConfig) -> None:
+    _check_config(config).validate()
+
+
+def tracker_config_from_mapping(values: Mapping[str, Any]) -> TrackerConfig:
+    """Build a config from a ``tracker`` mapping.
+
+    Accepts ``{type: <name>, <name>: {...}}`` or the legacy flat form with
+    BoT-SORT keys at the top level. Unknown keys raise ``ValueError``.
     """
 
-    track_high_thresh: float = 0.25
-    track_low_thresh: float = 0.10
-    new_track_thresh: float = 0.25
-    track_buffer: int = 30
-    match_thresh: float = 0.80
-    fuse_score: bool = True
-    gmc_method: str = "sparseOptFlow"
-    gmc_downscale: int = 2
+    if not isinstance(values, Mapping):
+        raise ValueError("tracker must be a mapping")
+    if "type" not in values:
+        return _from_section(BoTSORTConfig, values, "tracker")
+    type_name = values["type"]
+    if not isinstance(type_name, str):
+        raise ValueError("tracker.type must be a string")
+    cls = type(default_tracker_config(type_name))
+    _check_keys(values, {"type", type_name}, "tracker")
+    section = values.get(type_name)
+    if section is None:
+        return cls()
+    if not isinstance(section, Mapping):
+        raise ValueError(f"tracker.{type_name} must be a mapping")
+    return _from_section(cls, section, f"tracker.{type_name}")
 
-    def __post_init__(self) -> None:
-        high = _probability(self.track_high_thresh, "track_high_thresh")
-        low = _probability(self.track_low_thresh, "track_low_thresh")
-        new = _probability(self.new_track_thresh, "new_track_thresh")
-        match = _probability(self.match_thresh, "match_thresh")
-        if not low < high:
-            raise ValueError("track_low_thresh must be smaller than track_high_thresh")
-        if new < high:
-            raise ValueError("new_track_thresh must be at least track_high_thresh")
-        if isinstance(self.track_buffer, bool) or not isinstance(self.track_buffer, Integral):
-            raise TypeError("track_buffer must be an integer")
-        if int(self.track_buffer) < 0:
-            raise ValueError("track_buffer must be non-negative")
-        if not isinstance(self.fuse_score, bool):
-            raise TypeError("fuse_score must be boolean")
-        if self.gmc_method not in {"sparseOptFlow", "none"}:
-            raise ValueError("gmc_method must be 'sparseOptFlow' or 'none'")
-        if isinstance(self.gmc_downscale, bool) or not isinstance(self.gmc_downscale, Integral):
-            raise TypeError("gmc_downscale must be an integer")
-        if int(self.gmc_downscale) < 1:
-            raise ValueError("gmc_downscale must be at least 1")
-        object.__setattr__(self, "track_high_thresh", high)
-        object.__setattr__(self, "track_low_thresh", low)
-        object.__setattr__(self, "new_track_thresh", new)
-        object.__setattr__(self, "track_buffer", int(self.track_buffer))
-        object.__setattr__(self, "match_thresh", match)
-        object.__setattr__(self, "gmc_downscale", int(self.gmc_downscale))
 
-    @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "BoTSORTConfig":
-        """Build a config from a YAML-like mapping.
+def _check_config(config: Any) -> TrackerConfig:
+    if not isinstance(config, CONFIG_TYPES):
+        raise TypeError(f"unsupported tracker config: {type(config).__name__}")
+    return config
 
-        Unknown keys are intentionally ignored so legacy Ultralytics ReID
-        settings cannot leak into the standalone tracker.
-        """
 
-        supported = {
-            "track_high_thresh",
-            "track_low_thresh",
-            "new_track_thresh",
-            "track_buffer",
-            "match_thresh",
-            "fuse_score",
-            "gmc_method",
-            "gmc_downscale",
-        }
-        return cls(**{key: values[key] for key in supported if key in values})
+def _check_keys(values: Mapping[str, Any], allowed: set[str], section: str) -> None:
+    unknown = sorted(str(key) for key in values if key not in allowed)
+    if unknown:
+        raise ValueError(f"unknown key(s) in {section}: {', '.join(unknown)}")
+
+
+def _from_section(cls: type, values: Mapping[str, Any], section: str) -> TrackerConfig:
+    _check_keys(values, {field.name for field in fields(cls)}, section)
+    return cls(**values)

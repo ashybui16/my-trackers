@@ -33,16 +33,13 @@ Python tracker remains the numerical oracle.
 
 ```text
 .
-├── src/mot_tracker/                  # Package BoT-SORT độc lập
-│   ├── tracker.py                    # Điều phối tracking và track lifecycle
-│   ├── track.py                      # Trạng thái của từng track
-│   ├── kalman_filter.py              # Kalman filter XYWH
-│   ├── association.py                # Ghép track với detection
-│   ├── assignment.py                 # LAPJV assignment
-│   ├── geometry.py                   # IoU và xử lý bounding box
-│   ├── gmc.py                        # Global Motion Compensation
-│   ├── config.py                     # BoTSORTConfig
-│   └── types.py                      # Detection và TrackOutput
+├── src/mot_tracker/                  # Package tracking độc lập (layout giống cpp/src/tracking)
+│   ├── base.py                       # Interface Tracker (≙ mot::ITracker)
+│   ├── config.py                     # TrackerConfig, tracker_config_from_mapping
+│   ├── factory.py                    # create_tracker, available_trackers
+│   ├── types.py                      # Detection và TrackOutput
+│   ├── common/                       # Kalman filter, association, LAPJV, IoU, GMC, Track
+│   └── trackers/botsort/             # BoTSORT và BoTSORTConfig
 ├── tools/
 │   ├── infer_video_standalone.py     # YOLO predict -> mot_tracker -> video/MOT output
 │   ├── visdrone_mot_standalone.py    # Pipeline VisDrone dùng tracker độc lập
@@ -96,9 +93,9 @@ Dataset, checkpoint, kết quả chạy và checkout Ultralytics đều không �
 Ví dụ tối thiểu khi không dùng GMC:
 
 ```python
-from mot_tracker import BoTSORT, BoTSORTConfig, Detection
+from mot_tracker import BoTSORTConfig, Detection, create_tracker
 
-tracker = BoTSORT(BoTSORTConfig(gmc_method="none"))
+tracker = create_tracker(BoTSORTConfig(gmc_method="none"))
 
 detections = [
     Detection(
@@ -120,7 +117,18 @@ Nếu dùng cấu hình mặc định `gmc_method="sparseOptFlow"`, cần truy�
 tracks = tracker.update(detections, frame_bgr)
 ```
 
-Mỗi video hoặc camera stream nên dùng một instance `BoTSORT` riêng. Gọi `tracker.reset()` khi bắt đầu stream mới; ID sẽ bắt đầu lại từ `1`.
+Có thể chọn tracker theo tên hoặc từ section `tracker` của `weights/config.yaml` (cùng quy tắc với C++):
+
+```python
+from mot_tracker import default_tracker_config, tracker_config_from_mapping
+
+tracker = create_tracker(default_tracker_config("botsort"))
+tracker = create_tracker(tracker_config_from_mapping(yaml_data["tracker"]))
+```
+
+Cách thêm tracker mới: xem [src/mot_tracker/README.md](src/mot_tracker/README.md).
+
+Mỗi video hoặc camera stream nên dùng một instance tracker riêng. Gọi `tracker.reset()` khi bắt đầu stream mới; ID sẽ bắt đầu lại từ `1`.
 
 ### Quy ước dữ liệu
 
