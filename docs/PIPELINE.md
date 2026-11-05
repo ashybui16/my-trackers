@@ -1,6 +1,6 @@
 Để đọc hiểu `cpp/`, hãy bắt đầu từ **luồng dữ liệu của một khung hình**:
 
-`video frame → TensorRTDetector::infer() → Detection[] → BoTSORT::update() → TrackOutput[] → video + tệp kết quả`
+`video frame → IDetector::detect() (TensorRTDetector) → Detection[] → ITracker::update() (BoT-SORT, ...) → TrackOutput[] → video + tệp kết quả`
 
 Điểm nối hai phần nằm trong [pipeline.cpp](/home/ashybui16/code/my-trackers/cpp/src/pipeline/pipeline.cpp:10): chỉ hai lời gọi `infer(frame)` và `update(detections, frame)`.
 

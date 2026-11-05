@@ -1,4 +1,4 @@
-#include "mot_pipeline/pipeline.hpp"
+#include "mot/pipeline/config.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -6,6 +6,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace {
 void expect(bool condition, const std::string& message) {
@@ -16,9 +18,11 @@ void expect(bool condition, const std::string& message) {
 int main(int argc, char** argv) {
     try {
         expect(argc == 2, "pass the repository config.yaml path");
-        const auto shipped = mot_inference::PipelineConfig::fromFile(argv[1]);
-        expect(shipped.detector.input_width == 640 && shipped.tracker.fuse_score,
-               "shipped YAML values");
+        const auto shipped = mot::PipelineConfig::fromFile(argv[1]);
+        expect(shipped.detector.input_width == 640 &&
+               std::get<mot::BoTSORTConfig>(shipped.tracker).fuse_score, "shipped YAML values");
+        expect(shipped.class_names.size() == 10 && shipped.class_names[0] == "pedestrian",
+               "shipped class names");
         expect(std::filesystem::path(shipped.engine_path).is_absolute(), "resolved shipped engine path");
         struct TemporaryDirectory {
             std::filesystem::path path = std::filesystem::temp_directory_path() /
@@ -32,7 +36,7 @@ int main(int argc, char** argv) {
             std::ofstream file(path);
             file << text;
             file.close();
-            return mot_inference::PipelineConfig::fromFile(path.string());
+            return mot::PipelineConfig::fromFile(path.string());
         };
         const auto reject = [&](const std::string& text) {
             try { load(text); }
@@ -66,13 +70,35 @@ tracker:
                custom.detector.class_count == 2 && custom.detector.conf_threshold == 0.05 &&
                custom.detector.iou_threshold == 0.6 && custom.detector.max_det == 42,
                "all detector overrides");
-        expect(custom.tracker.track_high_thresh == 0.5 && custom.tracker.track_low_thresh == 0.2 &&
-               custom.tracker.new_track_thresh == 0.6 && custom.tracker.track_buffer == 75 &&
-               custom.tracker.match_thresh == 0.9 && !custom.tracker.fuse_score &&
-               custom.tracker.gmc_method == "none" && custom.tracker.gmc_downscale == 4,
-               "all tracker overrides");
+        const auto& bot = std::get<mot::BoTSORTConfig>(custom.tracker);
+        expect(bot.track_high_thresh == 0.5 && bot.track_low_thresh == 0.2 &&
+               bot.new_track_thresh == 0.6 && bot.track_buffer == 75 &&
+               bot.match_thresh == 0.9 && !bot.fuse_score &&
+               bot.gmc_method == "none" && bot.gmc_downscale == 4,
+               "all legacy flat tracker overrides");
+        const auto typed = load(R"(detector: { class_count: 3, class_names: ["a", "b"] }
+tracker:
+  type: botsort
+  botsort: { track_buffer: 12, gmc_method: "none" }
+)");
+        expect(mot::trackerType(typed.tracker) == "botsort" &&
+               std::get<mot::BoTSORTConfig>(typed.tracker).track_buffer == 12,
+               "typed tracker section");
+        expect(typed.class_names == std::vector<std::string>{"a", "b", ""}, "inline class names");
+        expect(load("detector: {}\ntracker: { type: botsort }\n").tracker.index() == 0,
+               "typed tracker without parameters");
+        {
+            std::ofstream names(directory / "names.yaml");
+            names << "nc: 2\nnames:\n  0: cat\n  1: 'dog'\n";
+        }
+        const auto from_file =
+            load("detector: { class_count: 2, class_names: names.yaml }\ntracker: {}\n");
+        expect(from_file.class_names == std::vector<std::string>{"cat", "dog"}, "class names file");
+        expect(load("detector: {}\ntracker: {}\n").engine_path.empty(), "engine path is optional");
         expect(load("---\ndetector: {}\ntracker: {}\n").detector.max_det == 300, "optional defaults");
-        expect(load("%YAML:1.0\n---\ndetector: {}\ntracker: { fuse_score: 1 }\n").tracker.fuse_score,
+        expect(std::get<mot::BoTSORTConfig>(
+                   load("%YAML:1.0\n---\ndetector: {}\ntracker: { fuse_score: 1 }\n").tracker)
+                   .fuse_score,
                "OpenCV YAML header and numeric boolean");
         const auto absolute_engine = (directory / "absolute.engine").string();
         expect(load("detector: { engine_path: \"" + absolute_engine + "\" }\ntracker: {}\n").engine_path ==
@@ -85,7 +111,12 @@ tracker:
         reject("detector: { conf_threshold: .Nan }\ntracker: {}\n");
         reject("detector: { input_width: 0 }\ntracker: {}\n");
         reject("detector: { conf_threshold: 1.5 }\ntracker: {}\n");
-        reject("detector: { engine_path: \"\" }\ntracker: {}\n");
+        reject("detector: {}\ntracker: { type: nope }\n");
+        reject("detector: {}\ntracker: { type: botsort, other: {} }\n");
+        reject("detector: {}\ntracker: { type: botsort, botsort: { typo: 1 } }\n");
+        reject("detector: {}\ntracker: { type: botsort, track_buffer: 3 }\n");
+        reject("detector: { class_names: missing.yaml }\ntracker: {}\n");
+        reject("detector: { class_count: 1, class_names: [\"a\", \"b\"] }\ntracker: {}\n");
         reject("detector: { max_dett: 20 }\ntracker: {}\n");
         reject("detector: { max_det: 20, max_det: 30 }\ntracker: {}\n");
         reject("detector: {}\ntracker: { fuse_score: maybe }\n");
@@ -96,7 +127,7 @@ tracker:
         reject("detector: {}\ntracker: {}\n---\ndetector: {}\ntracker: {}\n");
         reject("detector: [\n");
         bool missing_rejected = false;
-        try { mot_inference::PipelineConfig::fromFile((directory / "missing.yaml").string()); }
+        try { mot::PipelineConfig::fromFile((directory / "missing.yaml").string()); }
         catch (const std::runtime_error&) { missing_rejected = true; }
         expect(missing_rejected, "missing file was accepted");
         std::cout << "MOT configuration tests passed\n";

@@ -25,7 +25,7 @@ Repo đồng thời cung cấp:
 
 ## C++ TensorRT implementation
 
-PLAN2 adds `mot_tracker_cpp`, `mot_inference_cpp` and the `mot_video` CLI.
+PLAN2 adds a C++17 library (`mot::tracking`, `mot::pipeline`, `mot::tensorrt`, ...) with pluggable trackers, and the `mot_video` CLI.
 Build and embedding instructions are in [docs/CPP.md](docs/CPP.md); the
 Python tracker remains the numerical oracle.
 

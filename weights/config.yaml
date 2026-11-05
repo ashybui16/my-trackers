@@ -1,6 +1,7 @@
 # Paths are relative to this configuration file. CLI flags override these values.
 detector:
   engine_path: "26leaf1.engine"
+  class_names: "visdrone.yaml"
   input_width: 640
   input_height: 640
   class_count: 10
@@ -9,11 +10,14 @@ detector:
   max_det: 300
 
 tracker:
-  track_high_thresh: 0.40
-  track_low_thresh: 0.20
-  new_track_thresh: 0.70
-  track_buffer: 90
-  match_thresh: 0.70
-  fuse_score: true
-  gmc_method: "sparseOptFlow"
-  gmc_downscale: 2
+  # One of the trackers built into the library (see cpp/src/tracking/README.md).
+  type: botsort
+  botsort:
+    track_high_thresh: 0.40
+    track_low_thresh: 0.20
+    new_track_thresh: 0.70
+    track_buffer: 90
+    match_thresh: 0.70
+    fuse_score: true
+    gmc_method: "sparseOptFlow"
+    gmc_downscale: 2

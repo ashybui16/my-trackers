@@ -1,7 +1,13 @@
-#include "mot_pipeline/pipeline.hpp"
-#include "mot_annotator/annotation.hpp"
-#include "mot_tracker/assignment.hpp"
-#include "detector/detector_postprocess.hpp"
+#include "mot/pipeline/config.hpp"
+#include "mot/tracking/factory.hpp"
+#include "mot/visualization/annotator.hpp"
+#ifdef MOT_BENCHMARK_GPU
+#include "mot/tensorrt/detector.hpp"
+#else
+#include "tensorrt/postprocess.hpp"
+#include "tracking/common/assignment.hpp"
+#include "tracking/common/gmc.hpp"
+#endif
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <algorithm>
@@ -14,6 +20,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -92,7 +99,10 @@ template <class F> void measure(const std::string &name, int repeat, const Optio
     }
     report(name, repeat, std::move(times), checksum);
 }
-void run(const Options &o, const mot_inference::PipelineConfig &config) {
+void run(const Options &o, const mot::PipelineConfig &config) {
+    // Component workloads use BoT-SORT parameters; other trackers fall back to defaults.
+    const auto *selected = std::get_if<mot::BoTSORTConfig>(&config.tracker);
+    const mot::BoTSORTConfig botsort = selected ? *selected : mot::BoTSORTConfig{};
     for (int rep = 1; rep <= o.repeats; ++rep) {
         for (auto shape : {std::pair<int, int>{16, 16}, {64, 96}, {128, 128}}) {
             std::vector<std::vector<double>> costs(shape.first, std::vector<double>(shape.second));
@@ -102,7 +112,7 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
             measure(
                 "assignment_" + std::to_string(shape.first) + "x" + std::to_string(shape.second), rep, o,
                 [&](int) {
-                    return mot_tracker::linearAssignment(costs, config.tracker.match_thresh).matches.size();
+                    return mot::linearAssignment(costs, botsort.match_thresh).matches.size();
                 });
         }
         for (int n : {128, 2048, 34000}) {
@@ -115,15 +125,15 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
                 raw[3 * n + i] = 20;
                 raw[static_cast<std::size_t>(4 + i % classes) * n + i] = 0.1F + 0.8F * (i % 97) / 96.0F;
             }
-            mot_inference::detail::OutputOptions output;
+            mot::detail::OutputOptions output;
             output.class_count = classes;
             output.conf_threshold = config.detector.conf_threshold;
             output.iou_threshold = config.detector.iou_threshold;
             output.max_det = config.detector.max_det;
             output.transform = {1, 0, 0, 1920, 1080};
-            mot_inference::detail::OutputWorkspace workspace;
+            mot::detail::OutputWorkspace workspace;
             measure("nms_" + std::to_string(n), rep, o, [&](int) {
-                return mot_inference::detail::processOutput(raw.data(), n, output, workspace).size();
+                return mot::detail::processOutput(raw.data(), n, output, workspace).size();
             });
         }
         for (int n : {30001, 34000, 100000}) {
@@ -136,38 +146,39 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
                 raw[3 * n + i] = 20;
                 raw[4 * n + i] = 0.9F;
             }
-            mot_inference::detail::OutputOptions output;
+            mot::detail::OutputOptions output;
             output.class_count = classes;
             output.conf_threshold = config.detector.conf_threshold;
             output.iou_threshold = config.detector.iou_threshold;
             output.max_det = config.detector.max_det;
             output.transform = {1, 0, 0, 100, 100};
-            mot_inference::detail::OutputWorkspace workspace;
+            mot::detail::OutputWorkspace workspace;
             measure("nms_overlap_" + std::to_string(n), rep, o, [&](int) {
-                return mot_inference::detail::processOutput(raw.data(), n, output, workspace).size();
+                return mot::detail::processOutput(raw.data(), n, output, workspace).size();
             });
         }
         for (int n : {16, 64, 128}) {
             auto tracker_config = config.tracker;
-            tracker_config.gmc_method = "none"; // Isolate association/Kalman; GMC measured separately.
-            mot_tracker::BoTSORT tracker(tracker_config);
+            if (auto *bot = std::get_if<mot::BoTSORTConfig>(&tracker_config))
+                bot->gmc_method = "none"; // Isolate association/Kalman; GMC measured separately.
+            const auto tracker = mot::createTracker(tracker_config);
             measure("tracker_no_gmc_" + std::to_string(n), rep, o, [&](int frame) {
-                std::vector<mot_tracker::Detection> detections;
+                std::vector<mot::Detection> detections;
                 detections.reserve(n);
                 for (int i = 0; i < n; ++i)
                     if ((frame + i) % 11 >= 3) {
                         const double x = i * 16.0 + 0.1 * (frame % 20);
-                        detections.emplace_back(mot_tracker::BBox{x, 0, x + 12, 20}, 0.9,
+                        detections.emplace_back(mot::BBox{x, 0, x + 12, 20}, 0.9,
                                                 i % config.detector.class_count);
                     }
-                const auto tracks = tracker.update(detections);
+                const auto tracks = tracker->update(detections);
                 std::size_t sum = tracks.size();
                 for (const auto &track : tracks)
                     sum += track.track_id;
                 return sum;
             });
         }
-        mot_tracker::GMC gmc(config.tracker.gmc_method, config.tracker.gmc_downscale);
+        mot::GMC gmc(botsort.gmc_method, botsort.gmc_downscale);
         cv::Mat image(360, 640, CV_8UC3);
         cv::RNG rng(42);
         rng.fill(image, cv::RNG::UNIFORM, 0, 256);
@@ -178,16 +189,16 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
     }
 }
 #else
-void run(const Options &o, const mot_inference::PipelineConfig &config) {
+void run(const Options &o, const mot::PipelineConfig &config) {
     if (!o.only.empty())
         throw std::invalid_argument("--only applies to CPU workloads");
     if (o.video.empty())
         throw std::invalid_argument("--video is required");
     std::filesystem::create_directories(o.output);
     for (int rep = 1; rep <= o.repeats; ++rep) {
-        mot_inference::TensorRTDetector detector(config.engine_path, config.detector);
-        mot_tracker::BoTSORT tracker(config.tracker);
-        mot_inference::MotAnnotator annotator(config.engine_path, config.detector.class_count);
+        mot::TensorRTDetector detector(config.engine_path, config.detector, config.class_names);
+        const auto tracker = mot::createTracker(config.tracker);
+        mot::Annotator annotator(config.class_names);
         cv::VideoCapture capture(o.video);
         if (!capture.isOpened())
             throw std::runtime_error("cannot open video");
@@ -204,10 +215,10 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
                 break;
             const double a = elapsed(start);
             auto tick = Clock::now();
-            const auto detections = detector.infer(frame);
+            const auto detections = detector.detect(frame);
             const double b = elapsed(tick);
             tick = Clock::now();
-            const auto tracks = tracker.update(detections, frame);
+            const auto tracks = tracker->update(detections, frame);
             const double c = elapsed(tick);
             tick = Clock::now();
             annotator.draw(frame, tracks);
@@ -253,7 +264,7 @@ void run(const Options &o, const mot_inference::PipelineConfig &config) {
 int main(int argc, char **argv) {
     try {
         const auto o = parse(argc, argv);
-        const auto config = mot_inference::PipelineConfig::fromFile(o.config);
+        const auto config = mot::PipelineConfig::fromFile(o.config);
         std::cout << std::fixed << std::setprecision(6)
                   << "workload,repeat,samples,mean_ms,median_ms,p95_ms,fps,checksum\n";
         run(o, config);

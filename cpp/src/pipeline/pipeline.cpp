@@ -1,21 +1,30 @@
-#include "mot_pipeline/pipeline.hpp"
+#include "mot/pipeline/pipeline.hpp"
 
+#include <stdexcept>
 #include <utility>
 
-namespace mot_inference {
+namespace mot {
 
-MotPipeline::MotPipeline(const std::string& engine_path, PipelineConfig config)
-    : detector_(engine_path, config.detector), tracker_(std::move(config.tracker)) {}
+Pipeline::Pipeline(std::unique_ptr<IDetector> detector, std::unique_ptr<ITracker> tracker)
+    : detector_(std::move(detector)), tracker_(std::move(tracker)) {
+    if (!detector_) throw std::invalid_argument("Pipeline requires a detector");
+    if (!tracker_) throw std::invalid_argument("Pipeline requires a tracker");
+}
 
-std::vector<mot_tracker::TrackOutput> MotPipeline::processFrame(const cv::Mat& frame) {
+std::vector<TrackOutput> Pipeline::process(const cv::Mat& frame) {
     // Một frame đi qua detector trước, rồi các hộp được gắn ID qua tracker.
-    const auto detections = detector_.infer(frame);
-    return tracker_.update(detections, frame);
+    const auto detections = detector_->detect(frame);
+    return tracker_->update(detections, frame);
 }
 
-void MotPipeline::reset() {
-    // Giữ engine đã nạp và chỉ xóa lịch sử theo dõi.
-    tracker_.reset();
+void Pipeline::reset() {
+    // Giữ detector đã nạp và chỉ xóa lịch sử theo dõi.
+    tracker_->reset();
 }
 
-}  // namespace mot_inference
+void Pipeline::setTracker(std::unique_ptr<ITracker> tracker) {
+    if (!tracker) throw std::invalid_argument("Pipeline requires a tracker");
+    tracker_ = std::move(tracker);
+}
+
+}  // namespace mot

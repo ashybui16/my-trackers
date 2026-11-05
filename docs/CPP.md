@@ -1,22 +1,36 @@
 # C++ TensorRT video pipeline
 
-PLAN2 adds a C++17 implementation under `cpp/`:
+PLAN2 adds a C++17 multi-object-tracking library under `cpp/`, organised so new
+trackers can be added and so another application can consume it as a CMake package.
 
-- `mot_tracker_cpp`: detector-agnostic BoT-SORT. GMC state transforms and
-  removed-track bookkeeping follow the vendored Ultralytics 8.4.157 implementation;
-  assignment continues to use the existing C++ Hungarian solver.
-- `mot_inference_cpp`: RAII TensorRT detector and synchronous `MotPipeline`.
-- `mot_pipeline_config_cpp`: strict YAML configuration loader, usable without CUDA.
-- `mot_annotator_cpp`: independent `MotAnnotator` for tracks and detections, usable without CUDA.
-- `mot_video`: video input, annotated MP4 output and VisDrone/MOT text output.
+| Target | Contents | Needs CUDA |
+|---|---|---|
+| `mot::core` | `Detection`, `TrackOutput`, `BBox`, `DetectorConfig` | no |
+| `mot::tracking` | `ITracker`, `TrackerConfig`, `createTracker()`, all trackers (BoT-SORT today) | no |
+| `mot::pipeline` | `Pipeline` (any `IDetector` + any `ITracker`), strict YAML `PipelineConfig` | no |
+| `mot::visualization` | `Annotator` for tracks and detections | no |
+| `mot::tensorrt` | `TensorRTDetector` (implements `IDetector`) | yes |
+| `mot::mot` | umbrella over everything that was built | |
 
-Implementation files are grouped under `cpp/src/detector/`, `cpp/src/tracker/`,
-`cpp/src/pipeline/`, `cpp/src/annotator/` and `cpp/src/apps/`. Tests are grouped
-under `cpp/tests/detector/`, `cpp/tests/tracker/`, `cpp/tests/pipeline/` and
-`cpp/tests/annotator/`. Public headers live under `cpp/include/mot_detector/`,
-`cpp/include/mot_tracker/`, `cpp/include/mot_pipeline/` and
-`cpp/include/mot_annotator/`. The postprocess header is private and lives in
-`cpp/internal/detector/`.
+`mot_video` (in `cpp/apps/`) is the video CLI: video in, annotated MP4 and
+VisDrone/MOT text out.
+
+```
+cpp/
+├── include/mot/{core,detection,tracking,pipeline,tensorrt,visualization}/  # public API
+├── src/<module>/            # implementation + private headers (never installed)
+│   └── tracking/{common,botsort}/   # shared SORT building blocks, one folder per tracker
+├── apps/mot_video/          # CLI
+├── tests/<module>/          # CTest suites (tracker contract test covers every tracker)
+├── benchmarks/
+└── cmake/                   # helpers, FindTensorRT, package config
+```
+
+All code is in namespace `mot`. To add a tracker, follow
+[`cpp/src/tracking/README.md`](../cpp/src/tracking/README.md).
+
+BoT-SORT: GMC state transforms and removed-track bookkeeping follow the vendored
+Ultralytics 8.4.157 implementation; assignment uses the C++ Hungarian solver.
 
 GMC applies the same affine rotation block to `(x, y)`, `(w, h)` and both
 velocity pairs, with translation applied only to the center. This can produce
@@ -45,7 +59,7 @@ The current `weights/26leaf1.engine` has input `images` `[1,3,640,640]` and
 output `output0` `[1,14,34000]`, both FP32. Building with `--fp16` enables FP16
 computation internally; it does not require FP16 input/output bindings.
 Tensor buffers on CPU/GPU and the letterbox canvas are allocated once during
-construction and reused by `infer()`.
+construction and reused by `detect()`.
 
 ## Build
 
@@ -56,12 +70,15 @@ from the repository root or from `cpp/`:
 cmake -S . -B /tmp/my-trackers-cpp-build \
   -DTENSORRT_ROOT=/opt/TensorRT-8.6.1.6 \
   -DCUDAToolkit_ROOT=/usr/local/cuda \
-  -DMOT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=Release
 cmake --build /tmp/my-trackers-cpp-build -j
 ctest --test-dir /tmp/my-trackers-cpp-build --output-on-failure
 ```
 
-The tracker, configuration, annotator, detector postprocess and performance-regression tests are CPU-only. To enable the separate TensorRT smoke test,
+Use `-DMOT_WITH_TENSORRT=OFF` for a CPU-only build (no detector backend, no
+`mot_video`). Apps and tests are built by default only when this repository is
+the top-level project. The tracking, tracker-contract, pipeline, configuration,
+annotator, postprocess and performance-regression tests are CPU-only. To enable the separate TensorRT smoke test,
 configure with `-DMOT_BUILD_GPU_TESTS=ON`, set `MOT_ENGINE_PATH` to a
 GPU-compatible engine, then run `ctest -L gpu`; the test is skipped when the
 environment variable is absent.
@@ -75,7 +92,7 @@ rebuilt for the target environment.
 ## Run
 
 ```bash
-/tmp/my-trackers-cpp-build/cpp/mot_video data/input.ts \
+/tmp/my-trackers-cpp-build/cpp/apps/mot_video/mot_video data/input.ts \
   --config weights/config.yaml \
   --output-dir runs/video_inference_cpp
 ```
@@ -86,66 +103,99 @@ are `frame,id,x,y,width,height,confidence,class,-1,-1`; frame and class IDs
 are one-based. Incomplete inference only leaves temporary dot files, which
 are removed on failure. Pass `--overwrite` to replace existing outputs.
 
-`weights/config.yaml` stores the engine path and all detector/tracker parameters.
+`weights/config.yaml` stores the engine path, class names and all detector/tracker
+parameters. The tracker is selected by `tracker.type`; its parameters live in a
+section of the same name:
+
+```yaml
+detector:
+  engine_path: "26leaf1.engine"   # optional for apps that use another IDetector
+  class_names: "visdrone.yaml"    # Ultralytics dataset YAML, or an inline list
+  class_count: 10
+tracker:
+  type: botsort
+  botsort: { track_high_thresh: 0.40, track_buffer: 90, ... }
+```
+
+The older flat form (BoT-SORT keys directly under `tracker:` with no `type`) is
+still accepted and read as BoT-SORT.
 Runtime parameter values come from the selected YAML; benchmark comparisons must use the same file.
 Run from the repository root, pass `--config /path/to/config.yaml`, or set
 `MOT_CONFIG_PATH`. Priority is `--config`, then `MOT_CONFIG_PATH`, then
 `weights/config.yaml`. CLI parameter flags override YAML regardless of argument
 order. Relative YAML engine paths resolve against the config directory; an
 `--engine` override resolves against the working directory. `--class-count`
-overrides the number of detector classes. Both `detector` and `tracker` mappings
+overrides the number of detector classes. `--tracker TYPE` selects another tracker
+(its defaults are used unless the YAML type matches). Both `detector` and `tracker` mappings
 are required; omitted fields use C++ defaults. Unknown/duplicate keys, wrong types
 and invalid settings fail with a message containing the config path.
 
-`MotAnnotator` is independent of inference. It reads class names from
-`visdrone.yaml` beside the engine, uses a color per class, and draws class names
-with track IDs. Missing class names fall back to `Class <id>`. The CLI uses it
-for annotated video output.
+`Annotator` is independent of inference. It takes the class names (from
+`detector.class_names` or `mot::loadClassNames()`), uses a color per class, and
+draws class names with track IDs. Missing class names fall back to `Class <id>`.
+The CLI uses it for annotated video output.
 
-All tracker flags are exposed by the CLI: `--track-high-thresh`,
+All BoT-SORT flags are exposed by the CLI (they are rejected for other trackers): `--track-high-thresh`,
 `--track-low-thresh`, `--new-track-thresh`, `--track-buffer`,
 `--match-thresh`, `--fuse-score`/`--no-fuse-score`, `--gmc-method` and
 `--gmc-downscale`.
 
-## Embedding a camera/frame caller
+## Using the library from another application
 
-For detection only, call the detector directly:
+Either vendor the folder or install it:
 
-```cpp
-#include "mot_detector/detector.hpp"
+```cmake
+# Option A: source tree (only the libraries are built)
+set(MOT_WITH_TENSORRT ON)            # OFF if you bring your own detector
+add_subdirectory(path/to/my-trackers/cpp mot)
+# Option B: cmake --install <build> --prefix <prefix>, then
+find_package(mot CONFIG REQUIRED)    # with CMAKE_PREFIX_PATH=<prefix>
 
-mot_inference::TensorRTDetector detector("weights/26leaf1.engine");
-std::vector<mot_tracker::Detection> detections = detector.infer(bgr_frame);
+target_link_libraries(my_app PRIVATE mot::mot)   # or individual mot::* targets
 ```
 
-For detection and tracking, use the existing pipeline:
+Detection and tracking from a YAML file:
 
 ```cpp
-#include "mot_pipeline/pipeline.hpp"
+#include <mot/pipeline/config.hpp>
+#include <mot/pipeline/pipeline.hpp>
+#include <mot/tensorrt/detector.hpp>
+#include <mot/tracking/factory.hpp>
 
-auto config = mot_inference::PipelineConfig::fromFile("weights/config.yaml");
-mot_inference::MotPipeline pipeline(config.engine_path, config);
+auto config = mot::PipelineConfig::fromFile("weights/config.yaml");
+mot::Pipeline pipeline(
+    std::make_unique<mot::TensorRTDetector>(config.engine_path, config.detector, config.class_names),
+    mot::createTracker(config.tracker));
 
 // Each call is synchronous and owns state for this stream.
-std::vector<mot_tracker::TrackOutput> tracks = pipeline.processFrame(bgr_frame);
-// Start a new stream without reloading the TensorRT engine.
+std::vector<mot::TrackOutput> tracks = pipeline.process(bgr_frame);
+// Start a new stream without reloading the engine.
 pipeline.reset();
+// Switch algorithm, keeping the loaded detector.
+pipeline.setTracker(mot::createTracker(mot::defaultTrackerConfig("botsort")));
 ```
 
-Use the annotator separately when rendering is needed (link `mot::annotator`):
+Any detector can be used by implementing `mot::IDetector`
+(`detect(const cv::Mat&)` and `classNames()`), and trackers can be used on their own:
 
 ```cpp
-#include "mot_annotator/annotation.hpp"
+auto tracker = mot::createTracker(mot::BoTSORTConfig{});
+auto tracks = tracker->update(detections, bgr_frame);
+```
 
-mot_inference::MotAnnotator annotator(config.engine_path, config.detector.class_count);
-cv::Mat annotated = bgr_frame.clone();
+Rendering (link `mot::visualization`):
+
+```cpp
+#include <mot/visualization/annotator.hpp>
+
+mot::Annotator annotator(config.class_names);
 annotator.draw(annotated, tracks);
 // For detection-only callers: annotator.drawDetections(annotated, detections);
 ```
 
-`MotPipeline` and `BoTSORT` instances are stateful and must not be called
+`Pipeline` and tracker instances are stateful and must not be called
 concurrently. Use one instance per camera stream. Camera capture, queues,
-backpressure and evaluator integration remain outside v1.
+backpressure and evaluator integration remain outside the library.
 
 ## Performance benchmarks
 
@@ -162,12 +212,12 @@ cmake -S . -B /tmp/my-trackers-perf -DCMAKE_BUILD_TYPE=Release \
   -DMOT_BUILD_BENCHMARKS=ON -DMOT_BUILD_GPU_TESTS=ON \
   -DCUDAToolkit_ROOT=/usr/local/cuda
 cmake --build /tmp/my-trackers-perf -j4
-/tmp/my-trackers-perf/cpp/mot_benchmark_cpu --config weights/config.yaml > cpu.csv
-/tmp/my-trackers-perf/cpp/mot_benchmark_video --config weights/config.yaml \
+/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark_cpu --config weights/config.yaml > cpu.csv
+/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark_video --config weights/config.yaml \
   --video data/input.ts --output-dir /tmp/mot-benchmark-video > video.csv
 ```
 
-The CPU target also builds with `-DMOT_BUILD_INFERENCE=OFF`. Both commands default to 100 warm-up iterations,
+The CPU target also builds with `-DMOT_WITH_TENSORRT=OFF`. Both commands default to 100 warm-up iterations,
 1000 measured samples and 3 independent repeats; override with `--warmup`, `--frames`, and `--repeats`.
 The CPU target measures rectangular/square assignment, raw NMS (including above-cap overlap cases), trackers at three object counts, and GMC.
 Use `--only WORKLOAD`, e.g. `--only gmc_640x360` or `--only nms_overlap_34000`, for targeted CPU reruns.
