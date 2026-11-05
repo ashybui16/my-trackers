@@ -1,4 +1,3 @@
-// Pipeline with a scripted detector: runs on CPU, no TensorRT required.
 #include "mot/pipeline/pipeline.hpp"
 #include "mot/tracking/factory.hpp"
 
@@ -43,7 +42,7 @@ public:
     int resets{0};
 };
 
-}  // namespace
+}
 
 int main() {
     try {
@@ -60,7 +59,6 @@ int main() {
                "pipeline calls detector, tracker and reset exactly once");
         expect(pipeline.detector().classNames().size() == 2, "detector accessor");
 
-        // Swap in every real tracker; detect → track must keep IDs across frames.
         for (const auto type : mot::availableTrackers()) {
             pipeline.setTracker(mot::createTracker(mot::defaultTrackerConfig(type)));
             expect(pipeline.tracker().name() == type, "setTracker replaced the tracker");

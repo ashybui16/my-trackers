@@ -4,7 +4,7 @@
 #ifdef MOT_BENCHMARK_GPU
 #include "mot/tensorrt/detector.hpp"
 #else
-#include "tensorrt/postprocess.hpp"
+#include "detection/yolo/postprocess.hpp"
 #include "tracking/common/assignment.hpp"
 #include "tracking/common/gmc.hpp"
 #endif
@@ -196,7 +196,7 @@ void run(const Options &o, const mot::PipelineConfig &config) {
         throw std::invalid_argument("--video is required");
     std::filesystem::create_directories(o.output);
     for (int rep = 1; rep <= o.repeats; ++rep) {
-        mot::TensorRTDetector detector(config.engine_path, config.detector, config.class_names);
+        mot::TensorRTDetector detector(config.model_path, config.detector, config.class_names);
         const auto tracker = mot::createTracker(config.tracker);
         mot::Annotator annotator(config.class_names);
         cv::VideoCapture capture(o.video);
@@ -260,7 +260,7 @@ void run(const Options &o, const mot::PipelineConfig &config) {
     }
 }
 #endif
-} // namespace
+}
 int main(int argc, char **argv) {
     try {
         const auto o = parse(argc, argv);

@@ -9,7 +9,6 @@ namespace mot {
 namespace {
 
 std::vector<BBox> boxes(const std::vector<TrackPtr>& tracks) {
-    // Lấy hộp hiện tại theo đúng thứ tự track để lập ma trận chi phí.
     std::vector<BBox> result;
     result.reserve(tracks.size());
     for (const auto& track : tracks) {
@@ -18,12 +17,11 @@ std::vector<BBox> boxes(const std::vector<TrackPtr>& tracks) {
     return result;
 }
 
-}  // namespace
+}
 
 std::vector<std::vector<double>> trackDistance(const std::vector<TrackPtr>& tracks,
                                                const std::vector<TrackPtr>& detections,
                                                bool use_score_fusion) {
-    // Đổi hộp thành ma trận 1 - IoU; tùy chọn giảm chi phí cho detection đáng tin hơn.
     std::vector<std::vector<double>> distances = iouDistance(boxes(tracks), boxes(detections));
     if (use_score_fusion && !distances.empty() && !distances.front().empty()) {
         std::vector<double> scores;
@@ -48,7 +46,6 @@ AssignmentResult associate(const std::vector<TrackPtr>& tracks,
                            const std::vector<TrackPtr>& detections,
                            double match_thresh,
                            bool use_score_fusion) {
-    // Nếu hai phía đều có phần tử, giải phép ghép với ngưỡng chi phí đã chọn.
     if (tracks.empty() || detections.empty()) {
         AssignmentResult result;
         for (std::size_t index = 0; index < tracks.size(); ++index) {
@@ -97,7 +94,6 @@ std::vector<TrackPtr> subtractTracks(const std::vector<TrackPtr>& first,
 }
 
 void applyGMC(const std::vector<TrackPtr>& tracks, const cv::Mat& warp) {
-    // Áp cùng biến đổi camera cho mọi track trong pool.
     for (const auto& track : tracks) {
         track->applyWarp(warp);
     }
@@ -106,7 +102,6 @@ void applyGMC(const std::vector<TrackPtr>& tracks, const cv::Mat& warp) {
 DuplicateResult removeDuplicateTracks(const std::vector<TrackPtr>& tracked,
                                       const std::vector<TrackPtr>& lost,
                                       double iou_threshold) {
-    // So cặp track đang theo dõi và bị mất; giữ quỹ đạo tồn tại lâu hơn khi trùng.
     if (iou_threshold < 0.0 || iou_threshold > 1.0) {
         throw std::invalid_argument("iou_threshold must be in [0, 1]");
     }
@@ -154,4 +149,4 @@ DuplicateResult removeDuplicateTracks(const std::vector<TrackPtr>& tracked,
     return result;
 }
 
-}  // namespace mot
+}

@@ -42,10 +42,9 @@ void expectSameDetections(const std::vector<mot::Detection>& first,
     }
 }
 
-}  // namespace
+}
 
 int main() {
-    // Kiểm tra hợp đồng ảnh đầu vào và tái sử dụng buffer với engine thật.
     int device_count = 0;
     if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
         std::cerr << "No NVIDIA CUDA device is available; skipping TensorRT test\n";
@@ -78,11 +77,11 @@ int main() {
             frame = cv::Mat::zeros(480, 640, CV_8UC3);
         }
         const auto detections = detector.detect(frame);
-        // Đổi tỉ lệ ảnh rồi quay về frame cũ để phát hiện dữ liệu padding còn sót.
+        // Change aspect ratio, then return to the original frame to catch stale padding data.
         detector.detect(cv::Mat(641, 319, CV_8UC3, cv::Scalar(10, 80, 200)));
         expectSameDetections(detections, detector.detect(frame));
 
-        // ROI có stride khác ảnh liên tục nhưng phải cho cùng kết quả.
+        // A ROI has a different stride from a continuous image but must give the same result.
         cv::Mat padded(frame.rows + 2, frame.cols + 2, CV_8UC3, cv::Scalar::all(0));
         cv::Mat roi = padded(cv::Rect(1, 1, frame.cols, frame.rows));
         frame.copyTo(roi);

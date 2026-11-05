@@ -1,11 +1,18 @@
 #include "mot/pipeline/config.hpp"
 #include "mot/pipeline/pipeline.hpp"
+#if defined(MOT_HAS_TENSORRT)
 #include "mot/tensorrt/detector.hpp"
+#endif
+#if defined(MOT_HAS_ONNXRUNTIME)
+#include "mot/onnxruntime/detector.hpp"
+#endif
 #include "mot/tracking/factory.hpp"
 #include "mot/visualization/annotator.hpp"
 
 #include <opencv2/videoio.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -25,7 +32,6 @@
 
 namespace {
 
-// Giá trị dòng lệnh cho video, engine, đầu ra và hai bước xử lý.
 struct Options {
     std::filesystem::path video;
     std::filesystem::path output_dir{"runs/video_inference_cpp"};
@@ -33,13 +39,23 @@ struct Options {
     bool overwrite{false};
 };
 
-// Báo lỗi tham số kèm cú pháp chạy chương trình.
+std::string backends() {
+    std::string names;
+#if defined(MOT_HAS_TENSORRT)
+    names += " tensorrt(.engine,.trt,.plan)";
+#endif
+#if defined(MOT_HAS_ONNXRUNTIME)
+    names += " onnxruntime(.onnx)";
+#endif
+    return names;
+}
+
 [[noreturn]] void usageError(const std::string& message) {
-    // Ghép lỗi cụ thể với hướng dẫn cú pháp để người dùng sửa tham số.
     throw std::invalid_argument(message +
                                 "\nUsage: mot_video VIDEO [--config YAML] [options]\n"
                                 "  --config YAML                 default: weights/config.yaml (or MOT_CONFIG_PATH)\n"
-                                "  --engine ENGINE               override YAML engine path\n"
+                                "  --model MODEL                 override YAML model_path (.engine or .onnx)\n"
+                                "  --engine ENGINE               alias of --model\n"
                                 "  --tracker TYPE                override YAML tracker.type\n"
                                 "  --class-count N\n"
                                 "  --output-dir DIR              output directory\n"
@@ -53,9 +69,7 @@ struct Options {
                                 "  --overwrite");
 }
 
-// Đọc số thực và báo tên tùy chọn khi giá trị không hợp lệ.
 double parseDouble(const std::string& option, const std::string& text) {
-    // Chuyển chuỗi thành số thực và gắn tên tùy chọn vào lỗi phân tích.
     try {
         std::size_t consumed = 0;
         const double value = std::stod(text, &consumed);
@@ -68,9 +82,7 @@ double parseDouble(const std::string& option, const std::string& text) {
     }
 }
 
-// Đọc số nguyên từ đối số dòng lệnh.
 int parseInt(const std::string& option, const std::string& text) {
-    // Chuyển chuỗi thành số nguyên và bác bỏ ký tự thừa.
     try {
         std::size_t consumed = 0;
         const long value = std::stol(text, &consumed);
@@ -84,16 +96,13 @@ int parseInt(const std::string& option, const std::string& text) {
 }
 
 std::string nextValue(int& index, int argc, char** argv, const std::string& option) {
-    // Lấy đối số tiếp theo và báo lỗi nếu tùy chọn thiếu giá trị.
     if (index + 1 >= argc) {
         usageError(option + " requires a value");
     }
     return argv[++index];
 }
 
-// Ánh xạ đối số dòng lệnh vào cấu hình chạy video.
 Options parseOptions(int argc, char** argv) {
-    // Duyệt argv, ánh xạ từng cờ vào Options và kiểm tra tham số bắt buộc.
     Options options;
     // Read YAML first so explicit CLI overrides are independent of argument order.
     const char* environment_config = std::getenv("MOT_CONFIG_PATH");
@@ -108,7 +117,8 @@ Options parseOptions(int argc, char** argv) {
             std::cout << "Usage: mot_video VIDEO [--config YAML] [options]\n"
                       << "Default config: weights/config.yaml (or MOT_CONFIG_PATH)\n"
                       << "Trackers:" << trackers << " (select with --tracker TYPE)\n"
-                      << "CLI overrides: --engine, --class-count, --input-width, --input-height,\n"
+                      << "Detector backends:" << backends() << " (chosen by model extension)\n"
+                      << "CLI overrides: --model (alias --engine), --class-count, --input-width, --input-height,\n"
                       << "  --conf, --iou, --max-det, --track-high-thresh, --track-low-thresh,\n"
                       << "  --new-track-thresh, --track-buffer, --match-thresh, --fuse-score,\n"
                       << "  --no-fuse-score, --gmc-method, --gmc-downscale\n"
@@ -124,7 +134,7 @@ Options parseOptions(int argc, char** argv) {
         }
     }
     options.config = mot::PipelineConfig::fromFile(config_path);
-    // Đổi tracker trước để các cờ riêng của tracker áp dụng đúng kiểu.
+    // Switch tracker first so tracker-specific flags apply to the right type.
     if (!tracker_type.empty() && tracker_type != mot::trackerType(options.config.tracker)) {
         options.config.tracker = mot::defaultTrackerConfig(tracker_type);
     }
@@ -156,8 +166,8 @@ Options parseOptions(int argc, char** argv) {
             nextValue(index, argc, argv, argument);
         } else if (argument == "--class-count") {
             options.config.detector.class_count = parseInt(argument, nextValue(index, argc, argv, argument));
-        } else if (argument == "--engine") {
-            options.config.engine_path = nextValue(index, argc, argv, argument);
+        } else if (argument == "--model" || argument == "--engine") {
+            options.config.model_path = nextValue(index, argc, argv, argument);
         } else if (argument == "--output-dir") {
             options.output_dir = nextValue(index, argc, argv, argument);
         } else if (argument == "--input-width") {
@@ -191,7 +201,7 @@ Options parseOptions(int argc, char** argv) {
     if (options.video.empty()) {
         usageError("VIDEO is required");
     }
-    if (options.config.engine_path.empty()) usageError("engine path must not be empty");
+    if (options.config.model_path.empty()) usageError("model path must not be empty");
     options.config.detector.validate();
     mot::validate(options.config.tracker);
     return options;
@@ -200,7 +210,6 @@ Options parseOptions(int argc, char** argv) {
 std::filesystem::path temporaryPath(const std::filesystem::path& directory,
                                      const std::string& stem,
                                      const std::string& suffix) {
-    // Gắn PID để tệp tạm của các tiến trình song song không trùng tên.
 #if defined(__unix__) || defined(__APPLE__)
     const auto process_id = static_cast<long long>(::getpid());
 #else
@@ -209,14 +218,40 @@ std::filesystem::path temporaryPath(const std::filesystem::path& directory,
     return directory / ("." + stem + "." + std::to_string(process_id) + ".tmp" + suffix);
 }
 
-// Chạy suy luận từng frame và ghi video cùng kết quả theo dõi.
+std::unique_ptr<mot::IDetector> makeDetector(const mot::PipelineConfig& config,
+                                             const std::vector<std::string>& class_names,
+                                             std::string& backend) {
+    std::string extension = std::filesystem::path(config.model_path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (extension == ".onnx") {
+#if defined(MOT_HAS_ONNXRUNTIME)
+        backend = "onnxruntime (CPU)";
+        return std::make_unique<mot::OnnxRuntimeDetector>(config.model_path, config.detector, class_names);
+#else
+        throw std::runtime_error("ONNX model given but mot_video was built without ONNX Runtime "
+                                 "(MOT_WITH_ONNXRUNTIME=OFF): " + config.model_path);
+#endif
+    }
+    if (extension == ".engine" || extension == ".trt" || extension == ".plan") {
+#if defined(MOT_HAS_TENSORRT)
+        backend = "tensorrt";
+        return std::make_unique<mot::TensorRTDetector>(config.model_path, config.detector, class_names);
+#else
+        throw std::runtime_error("TensorRT engine given but mot_video was built without TensorRT "
+                                 "(MOT_WITH_TENSORRT=OFF): " + config.model_path);
+#endif
+    }
+    throw std::runtime_error("cannot pick a detector backend for '" + config.model_path +
+                             "'; available:" + backends());
+}
+
 int run(const Options& options) {
-    // Kiểm tra đầu vào và chuẩn bị tên file tạm trước khi mở video/engine.
     if (!std::filesystem::is_regular_file(options.video)) {
         throw std::runtime_error("input video does not exist: " + options.video.string());
     }
-    if (!std::filesystem::is_regular_file(options.config.engine_path)) {
-        throw std::runtime_error("TensorRT engine does not exist: " + options.config.engine_path);
+    if (!std::filesystem::is_regular_file(options.config.model_path)) {
+        throw std::runtime_error("model does not exist: " + options.config.model_path);
     }
     std::filesystem::create_directories(options.output_dir);
     const std::string stem = options.video.stem().string();
@@ -244,11 +279,11 @@ int run(const Options& options) {
 
     auto class_names = options.config.class_names;
     class_names.resize(static_cast<std::size_t>(options.config.detector.class_count));
-    mot::Pipeline pipeline(
-        std::make_unique<mot::TensorRTDetector>(options.config.engine_path, options.config.detector,
-                                                class_names),
-        mot::createTracker(options.config.tracker));
+    std::string backend;
+    mot::Pipeline pipeline(makeDetector(options.config, class_names, backend),
+                           mot::createTracker(options.config.tracker));
     mot::Annotator annotator(class_names);
+    std::cout << "Detector: " << backend << '\n';
     std::cout << "Tracker: " << pipeline.tracker().name() << '\n';
 
     std::ofstream output_text(temporary_predictions);
@@ -264,7 +299,6 @@ int run(const Options& options) {
     std::size_t row_count = 0;
     try {
         cv::Mat frame;
-        // Mỗi frame: phát hiện/theo dõi, vẽ hộp, ghi video và các dòng kết quả.
         while (capture.read(frame)) {
             ++frame_count;
             auto tracks = pipeline.process(frame);
@@ -303,7 +337,6 @@ int run(const Options& options) {
         if (frame_count == 0) {
             throw std::runtime_error("no frames were decoded from input video");
         }
-        // Chỉ chuyển file tạm thành đầu ra chính sau khi xử lý thành công.
         output_text.flush();
         if (!output_text) {
             throw std::runtime_error("writing temporary predictions file failed");
@@ -329,10 +362,9 @@ int run(const Options& options) {
     return 0;
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
-    // Phân tích tham số, chạy pipeline và in lỗi ra stderr nếu thất bại.
     try {
         return run(parseOptions(argc, argv));
     } catch (const std::exception& exception) {

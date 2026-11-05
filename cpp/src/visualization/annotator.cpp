@@ -12,16 +12,16 @@ namespace mot {
 namespace {
 
 const std::array<cv::Scalar, 10> kClassColors{{
-    cv::Scalar(80, 220, 255),  // yellow
-    cv::Scalar(120, 255, 120), // green
-    cv::Scalar(255, 210, 80),  // blue
-    cv::Scalar(80, 160, 255),  // orange
-    cv::Scalar(240, 130, 255), // pink
-    cv::Scalar(255, 220, 120), // light blue
-    cv::Scalar(120, 255, 220), // mint
-    cv::Scalar(200, 150, 255), // violet
-    cv::Scalar(80, 255, 255),  // bright yellow
-    cv::Scalar(255, 180, 180)  // pale blue
+    cv::Scalar(80, 220, 255),
+    cv::Scalar(120, 255, 120),
+    cv::Scalar(255, 210, 80),
+    cv::Scalar(80, 160, 255),
+    cv::Scalar(240, 130, 255),
+    cv::Scalar(255, 220, 120),
+    cv::Scalar(120, 255, 220),
+    cv::Scalar(200, 150, 255),
+    cv::Scalar(80, 255, 255),
+    cv::Scalar(255, 180, 180)
 }};
 
 cv::Scalar classColor(int class_id) {
@@ -88,7 +88,7 @@ void drawBoxAndLabel(cv::Mat& frame, const mot::BBox& box,
                 font, font_scale, text_color, text_thickness, cv::LINE_AA);
 }
 
-}  // namespace
+}
 
 Annotator::Annotator(std::vector<std::string> class_names)
     : class_names_(std::move(class_names)) {}
@@ -114,4 +114,4 @@ void Annotator::drawDetections(
     }
 }
 
-}  // namespace mot
+}

@@ -1,7 +1,7 @@
 #include "mot/tensorrt/detector.hpp"
 
-#include "tensorrt/postprocess.hpp"
-#include "tensorrt/preprocess.hpp"
+#include "detection/yolo/postprocess.hpp"
+#include "detection/yolo/preprocess.hpp"
 
 #include <NvInfer.h>
 #include <cuda_runtime_api.h>
@@ -24,7 +24,6 @@ namespace {
 class TensorRTLogger final : public nvinfer1::ILogger {
 public:
     void log(Severity severity, const char* message) noexcept override {
-        // Chỉ chuyển cảnh báo/lỗi TensorRT ra stderr.
         if (severity <= Severity::kWARNING) {
             std::cerr << "TensorRT: " << message << '\n';
         }
@@ -34,7 +33,6 @@ public:
 template <typename T>
 struct TensorRTDestroyer {
     void operator()(T* object) const noexcept {
-        // Hủy tài nguyên TensorRT qua API destroy tương ứng.
         if (object != nullptr) {
             object->destroy();
         }
@@ -45,13 +43,11 @@ template <typename T>
 using TensorRTPtr = std::unique_ptr<T, TensorRTDestroyer<T>>;
 
 void checkCuda(cudaError_t status, const std::string& operation) {
-    // Đổi mã lỗi CUDA thành ngoại lệ có tên thao tác gây lỗi.
     if (status != cudaSuccess) {
         throw std::runtime_error(operation + ": " + cudaGetErrorString(status));
     }
 }
 
-// Mỗi tài nguyên CUDA có một chủ sở hữu và tự giải phóng khi ra khỏi scope.
 class CudaBuffer {
 public:
     CudaBuffer() = default;
@@ -98,7 +94,6 @@ private:
 };
 
 std::string dimsString(const nvinfer1::Dims& dims) {
-    // Ghép các chiều tensor thành chuỗi để hiện trong thông báo lỗi.
     std::ostringstream stream;
     stream << '[';
     for (int index = 0; index < dims.nbDims; ++index) {
@@ -146,15 +141,14 @@ private:
     std::vector<float> fallback_;
 };
 
-}  // namespace
+}
 
 struct TensorRTDetector::Impl {
-    // Runtime và engine phải sống lâu hơn context.
+    // Runtime and engine must outlive the context.
     TensorRTLogger logger;
     TensorRTPtr<nvinfer1::IRuntime> runtime{nullptr};
     TensorRTPtr<nvinfer1::ICudaEngine> engine{nullptr};
     TensorRTPtr<nvinfer1::IExecutionContext> context{nullptr};
-    // Hai binding FP32 có shape cố định; output raw YOLO dạng feature-first.
     int input_binding_index{-1};
     int output_binding_index{-1};
     std::string input_binding_name;
@@ -164,13 +158,13 @@ struct TensorRTDetector::Impl {
     std::size_t output_elements{0};
     std::array<void*, 2> bindings{};
 
-    // Bộ đệm CPU được giữ tới khi CUDA stream hoàn tất.
+    // Host buffers are kept alive until the CUDA stream completes.
     HostFloatBuffer host_input;
     HostFloatBuffer host_output;
     detail::OutputWorkspace output_workspace;
     cv::Mat canvas;
 
-    // Hủy tài nguyên GPU trước bộ đệm CPU, kể cả khi có ngoại lệ trong lúc truyền dữ liệu.
+    // Release GPU resources before host buffers, even if a transfer throws.
     CudaStream stream;
     CudaBuffer device_output;
     CudaBuffer device_input;
@@ -323,12 +317,10 @@ TensorRTDetector::TensorRTDetector(TensorRTDetector&&) noexcept = default;
 TensorRTDetector& TensorRTDetector::operator=(TensorRTDetector&&) noexcept = default;
 
 const std::string& TensorRTDetector::inputBindingName() const {
-    // Trả tên binding đã tìm khi nạp engine.
     return impl_->input_binding_name;
 }
 
 const std::string& TensorRTDetector::outputBindingName() const {
-    // Trả tên binding đầu ra đã tìm khi nạp engine.
     return impl_->output_binding_name;
 }
 
@@ -340,4 +332,4 @@ std::vector<mot::Detection> TensorRTDetector::detect(const cv::Mat& frame) {
     return impl_->decodeOutput(frame.size(), letterbox, config_);
 }
 
-}  // namespace mot
+}

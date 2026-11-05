@@ -8,13 +8,11 @@
 namespace mot {
 
 std::array<double, 4> xyxyToXywh(const BBox& box) {
-    // Kiểm tra hộp góc rồi tính tâm và kích thước.
     validateBBox(box);
     return {(box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0, box[2] - box[0], box[3] - box[1]};
 }
 
 BBox xywhToXyxy(const std::array<double, 4>& box) {
-    // Đổi state sang hai góc, giữ kích thước có dấu sau GMC như Ultralytics.
     for (double value : box) {
         if (!std::isfinite(value)) {
             throw std::invalid_argument("xywh must contain only finite values");
@@ -25,8 +23,8 @@ BBox xywhToXyxy(const std::array<double, 4>& box) {
 }
 
 double iou(const BBox& first, const BBox& second) {
-    // Theo matching.iou_distance -> bbox_ioa của Ultralytics: float32,
-    // chỉ chặn phần giao âm, giữ diện tích có dấu và cộng epsilon vào hợp.
+    // Follows Ultralytics matching.iou_distance -> bbox_ioa: float32,
+    // clamps only negative intersections, keeps signed areas and adds epsilon to the union.
     std::array<float, 4> a{};
     std::array<float, 4> b{};
     for (std::size_t index = 0; index < a.size(); ++index) {
@@ -50,7 +48,6 @@ double iou(const BBox& first, const BBox& second) {
 
 std::vector<std::vector<double>> iouDistance(const std::vector<BBox>& first,
                                              const std::vector<BBox>& second) {
-    // Mỗi ô [row][column] là 1 - IoU của một cặp hộp.
     std::vector<std::vector<double>> result(first.size(), std::vector<double>(second.size(), 0.0));
     for (std::size_t row = 0; row < first.size(); ++row) {
         for (std::size_t column = 0; column < second.size(); ++column) {
@@ -62,7 +59,6 @@ std::vector<std::vector<double>> iouDistance(const std::vector<BBox>& first,
 
 std::vector<std::vector<double>> fuseScore(const std::vector<std::vector<double>>& cost,
                                            const std::vector<double>& scores) {
-    // Kiểm tra ma trận rồi nhân độ tương đồng của từng cột với điểm detection.
     if (cost.empty()) {
         if (!scores.empty()) {
             throw std::invalid_argument("scores must contain one value per detection column");
@@ -94,7 +90,6 @@ std::vector<std::vector<double>> fuseScore(const std::vector<std::vector<double>
 }
 
 void warpXywhState(cv::Mat& mean, cv::Mat& covariance, const cv::Mat& warp) {
-    // Kiểm tra trạng thái, biến đổi tâm/kích thước/vận tốc và truyền hiệp phương sai.
     if (mean.rows != 8 || mean.cols != 1 || mean.type() != CV_64F ||
         covariance.rows != 8 || covariance.cols != 8 || covariance.type() != CV_64F ||
         warp.rows != 2 || warp.cols != 3 || warp.type() != CV_64F) {
@@ -122,7 +117,7 @@ void warpXywhState(cv::Mat& mean, cv::Mat& covariance, const cv::Mat& warp) {
             throw std::invalid_argument("GMC warp must contain only finite values");
         }
     }
-    // Ultralytics áp cùng ma trận R lên cả bốn cặp trạng thái XYWH và vận tốc.
+    // Ultralytics applies the same R to all four XYWH/velocity state pairs.
     for (int block = 0; block < 4; ++block) {
         transform.at<double>(2 * block, 2 * block) = a00;
         transform.at<double>(2 * block, 2 * block + 1) = a01;
@@ -137,4 +132,4 @@ void warpXywhState(cv::Mat& mean, cv::Mat& covariance, const cv::Mat& warp) {
     covariance = std::move(transformed_covariance);
 }
 
-}  // namespace mot
+}

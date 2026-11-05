@@ -1,7 +1,7 @@
 add_executable(mot_benchmark_cpu mot_benchmark.cpp)
 target_include_directories(mot_benchmark_cpu PRIVATE ${MOT_SOURCE_DIR}/src)
 target_link_libraries(mot_benchmark_cpu PRIVATE
-    mot_pipeline mot_visualization mot_tensorrt_postprocess opencv_video opencv_videoio)
+    mot_pipeline mot_visualization mot_yolo_postprocess opencv_video opencv_videoio)
 mot_set_warnings(mot_benchmark_cpu)
 
 if(MOT_WITH_TENSORRT)

@@ -9,7 +9,6 @@
 
 namespace mot {
 
-// Vẽ hộp và nhãn lớp/ID lên frame BGR. Thiếu tên lớp thì dùng "Class <id>".
 class Annotator {
 public:
     explicit Annotator(std::vector<std::string> class_names = {});
@@ -23,4 +22,4 @@ private:
     std::vector<std::string> class_names_;
 };
 
-}  // namespace mot
+}

@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(mot VERSION 1.1.0 LANGUAGES CXX)
+project(mot VERSION 1.2.0 LANGUAGES CXX)
+
+# Honor <PACKAGE>_ROOT hints such as TENSORRT_ROOT and ONNXRUNTIME_ROOT.
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
 
 set(MOT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 list(APPEND CMAKE_MODULE_PATH "${MOT_SOURCE_DIR}/cmake")
@@ -15,6 +20,7 @@ else()
 endif()
 
 option(MOT_WITH_TENSORRT "Build the TensorRT detector (needs CUDA + TensorRT)" ON)
+option(MOT_WITH_ONNXRUNTIME "Build the ONNX Runtime (CPU) detector" ON)
 option(MOT_BUILD_APPS "Build the mot_video CLI" ${MOT_IS_TOP_LEVEL})
 option(MOT_BUILD_TESTS "Build CPU tests" ${MOT_IS_TOP_LEVEL})
 option(MOT_BUILD_GPU_TESTS "Build tests that need a TensorRT engine and an NVIDIA GPU" OFF)
@@ -42,26 +48,40 @@ if(MOT_WITH_TENSORRT)
     endif()
 endif()
 
+if(MOT_WITH_ONNXRUNTIME)
+    find_package(OnnxRuntime QUIET)
+    if(NOT OnnxRuntime_FOUND)
+        message(WARNING
+            "ONNX Runtime was not found; disabling MOT_WITH_ONNXRUNTIME. "
+            "Set ONNXRUNTIME_ROOT to an extracted onnxruntime-linux-x64-<version> release, "
+            "or pass -DMOT_WITH_ONNXRUNTIME=OFF.")
+        set(MOT_WITH_ONNXRUNTIME OFF)
+    endif()
+endif()
+
 include(GNUInstallDirs)
 include(MotHelpers)
 
-# Libraries (dependency order).
 add_subdirectory(src/core)
 add_subdirectory(src/tracking)
 add_subdirectory(src/pipeline)
 add_subdirectory(src/visualization)
+add_subdirectory(src/detection)
 add_subdirectory(src/tensorrt)
+add_subdirectory(src/onnxruntime)
 
-# Umbrella target: link mot::mot to get everything that was built.
 add_library(mot INTERFACE)
 add_library(mot::mot ALIAS mot)
 target_link_libraries(mot INTERFACE mot_core mot_tracking mot_pipeline mot_visualization)
 if(MOT_WITH_TENSORRT)
     target_link_libraries(mot INTERFACE mot_tensorrt)
 endif()
+if(MOT_WITH_ONNXRUNTIME)
+    target_link_libraries(mot INTERFACE mot_onnxruntime)
+endif()
 set_property(GLOBAL APPEND PROPERTY MOT_EXPORTED_TARGETS mot)
 
-if(MOT_BUILD_APPS AND MOT_WITH_TENSORRT)
+if(MOT_BUILD_APPS AND (MOT_WITH_TENSORRT OR MOT_WITH_ONNXRUNTIME))
     add_subdirectory(apps/mot_video)
 endif()
 if(MOT_BUILD_TESTS)
@@ -82,7 +102,10 @@ if(MOT_INSTALL)
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     set(_mot_header_excludes)
     if(NOT MOT_WITH_TENSORRT)
-        set(_mot_header_excludes PATTERN tensorrt EXCLUDE)
+        list(APPEND _mot_header_excludes PATTERN tensorrt EXCLUDE)
+    endif()
+    if(NOT MOT_WITH_ONNXRUNTIME)
+        list(APPEND _mot_header_excludes PATTERN onnxruntime EXCLUDE)
     endif()
     install(DIRECTORY include/mot DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} ${_mot_header_excludes})
     set(_mot_cmake_dir ${CMAKE_INSTALL_LIBDIR}/cmake/mot)
@@ -96,6 +119,7 @@ if(MOT_INSTALL)
         "${CMAKE_CURRENT_BINARY_DIR}/motConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/motConfigVersion.cmake"
         cmake/FindTensorRT.cmake
+        cmake/FindOnnxRuntime.cmake
         DESTINATION ${_mot_cmake_dir})
     if(TARGET mot_video)
         install(TARGETS mot_video RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -1,4 +1,4 @@
-#include "tensorrt/postprocess.hpp"
+#include "detection/yolo/postprocess.hpp"
 
 #include <array>
 #include <cmath>
@@ -214,7 +214,7 @@ void testClipAfterNmsAndNoBackfill() {
     expect(run(no_backfill, limited).empty(), "clipped max_det result must not be backfilled");
 }
 
-}  // namespace
+}
 
 int main() {
     try {

@@ -11,7 +11,7 @@
 
 namespace mot {
 
-// Engine dùng binding FP32 tuyến tính, output cố định [1,4+class_count,N].
+// The engine uses linear FP32 bindings with a fixed output [1,4+class_count,N].
 class TensorRTDetector final : public IDetector {
 public:
     TensorRTDetector(const std::string& engine_path, DetectorConfig config = {},
@@ -23,7 +23,6 @@ public:
     TensorRTDetector(TensorRTDetector&&) noexcept;
     TensorRTDetector& operator=(TensorRTDetector&&) noexcept;
 
-    // Chỉ nhận ảnh BGR 2D không rỗng kiểu CV_8UC3; trả các hộp sau lọc.
     std::vector<Detection> detect(const cv::Mat& frame) override;
     const std::vector<std::string>& classNames() const override { return class_names_; }
 
@@ -33,13 +32,11 @@ public:
     const std::string& outputBindingName() const;
 
 private:
-    // Impl giữ tài nguyên TensorRT/CUDA; con trỏ cho phép ẩn chi tiết triển khai.
     struct Impl;
-    // Cấu hình đã kiểm tra và đường dẫn engine đang sử dụng.
     DetectorConfig config_;
     std::string engine_path_;
     std::vector<std::string> class_names_;
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace mot
+}

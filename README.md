@@ -23,9 +23,9 @@ Repo đồng thời cung cấp:
 - Xuất prediction theo định dạng VisDrone-MOT và video đã vẽ bounding box.
 - Tuning tham số bằng Optuna; đánh giá HOTA, IDF1 và MOTA bằng TrackEval hoặc evaluator nội bộ.
 
-## C++ TensorRT implementation
+## C++ implementation
 
-PLAN2 adds a C++17 library (`mot::tracking`, `mot::pipeline`, `mot::tensorrt`, ...) with pluggable trackers, and the `mot_video` CLI.
+PLAN2 adds a C++17 library (`mot::tracking`, `mot::pipeline`, `mot::tensorrt`, `mot::onnxruntime`, ...) with pluggable trackers, TensorRT (GPU) and ONNX Runtime (CPU) detectors, and the `mot_video` CLI.
 Build and embedding instructions are in [docs/CPP.md](docs/CPP.md); the
 Python tracker remains the numerical oracle.
 
@@ -50,7 +50,7 @@ Python tracker remains the numerical oracle.
 │   ├── infer_video.py                # Baseline Ultralytics lịch sử
 │   └── visdrone_mot.py               # Baseline/evaluator và cache helpers
 ├── tests/                            # Unit và regression tests
-├── cpp/                              # C++17 tracker, TensorRT pipeline và CLI
+├── cpp/                              # C++17 tracker, TensorRT/ONNX Runtime pipeline và CLI
 ├── docs/                             # Kế hoạch và ghi chú triển khai
 ├── pyproject.toml                    # Metadata/dependency của package lõi
 └── requirements-mot.txt              # Dependency cho benchmark VisDrone

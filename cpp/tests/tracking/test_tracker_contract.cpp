@@ -1,5 +1,3 @@
-// Behavior every tracker returned by createTracker() must satisfy.
-// New trackers are covered automatically once they are added to TrackerConfig.
 #include "mot/tracking/factory.hpp"
 
 #include "support/check.hpp"
@@ -16,7 +14,6 @@ namespace {
 using mot::test::expect;
 
 std::vector<mot::Detection> frameDetections(int frame) {
-    // Hai đối tượng tách rời, di chuyển đều sang phải.
     const double dx = 2.0 * frame;
     return {{{100 + dx, 100, 140 + dx, 180}, 0.95, 0},
             {{400 + dx, 300, 460 + dx, 340}, 0.90, 3}};
@@ -47,7 +44,6 @@ void checkTracker(std::string_view type) {
     const auto& last = first.back();
     expect(last.size() == 2, name + ": two steady objects are tracked");
 
-    // ID của mỗi đối tượng phải ổn định qua các frame sau khi đã xác nhận.
     std::map<int, int> id_by_class;
     for (const auto& frame : first) {
         for (const auto& track : frame) {
@@ -58,7 +54,6 @@ void checkTracker(std::string_view type) {
     }
     expect(last[0].track_id != last[1].track_id, name + ": distinct objects get distinct IDs");
 
-    // reset() phải cho kết quả giống hệt một tracker mới.
     tracker->reset();
     const auto again = runSequence(*tracker, 12, image);
     auto fresh = mot::createTracker(config);
@@ -75,7 +70,7 @@ void checkTracker(std::string_view type) {
     std::cout << "  " << name << ": ok\n";
 }
 
-}  // namespace
+}
 
 int main() {
     try {

@@ -1,4 +1,4 @@
-#include "tensorrt/postprocess.hpp"
+#include "detection/yolo/postprocess.hpp"
 
 #include <algorithm>
 #include <array>
@@ -15,7 +15,7 @@ constexpr std::size_t kMaxNmsCandidates = 30000;
 using FloatBox = std::array<float, 4>;
 
 float floatIou(const FloatBox& first, const FloatBox& second, float first_area, float second_area) {
-    // Theo TorchNMS: diện tích box và phép chia đều dùng float32.
+    // Matches TorchNMS: box areas and the division both use float32.
     const float left = std::max(first[0], second[0]);
     const float top = std::max(first[1], second[1]);
     const float right = std::min(first[2], second[2]);
@@ -31,7 +31,6 @@ void greedyNms(OutputWorkspace& workspace,
                                    float iou_threshold,
                                    int max_det) {
     auto& candidates = workspace.candidates;
-    // Điểm giảm dần; source index làm thứ tự bằng điểm xác định và ổn định.
     const auto compare = [](const RawCandidate& first, const RawCandidate& second) {
         if (first.score != second.score) {
             return first.score > second.score;
@@ -117,7 +116,7 @@ std::vector<mot::Detection> processRaw(const float* output,
     greedyNms(workspace, static_cast<float>(options.iou_threshold), options.max_det);
     const auto& keep = workspace.keep;
 
-    // Ultralytics giới hạn max_det trước scale/clip; box rỗng bị loại mà không bù thêm.
+    // Ultralytics caps max_det before scale/clip; empty boxes are dropped without backfilling.
     const float scale = static_cast<float>(options.transform.scale);
     const float pad_x = static_cast<float>(options.transform.pad_x);
     const float pad_y = static_cast<float>(options.transform.pad_y);
@@ -152,7 +151,7 @@ std::vector<mot::Detection> processRaw(const float* output,
     return detections;
 }
 
-}  // namespace
+}
 
 std::vector<mot::Detection> processOutput(const float* output,
                                                   int candidate_count,
@@ -177,4 +176,4 @@ std::vector<mot::Detection> processOutput(const float* output, int candidate_cou
     return processOutput(output, candidate_count, options, workspace);
 }
 
-}  // namespace mot::detail
+}

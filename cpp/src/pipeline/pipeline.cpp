@@ -12,13 +12,11 @@ Pipeline::Pipeline(std::unique_ptr<IDetector> detector, std::unique_ptr<ITracker
 }
 
 std::vector<TrackOutput> Pipeline::process(const cv::Mat& frame) {
-    // Một frame đi qua detector trước, rồi các hộp được gắn ID qua tracker.
     const auto detections = detector_->detect(frame);
     return tracker_->update(detections, frame);
 }
 
 void Pipeline::reset() {
-    // Giữ detector đã nạp và chỉ xóa lịch sử theo dõi.
     tracker_->reset();
 }
 
@@ -27,4 +25,4 @@ void Pipeline::setTracker(std::unique_ptr<ITracker> tracker) {
     tracker_ = std::move(tracker);
 }
 
-}  // namespace mot
+}

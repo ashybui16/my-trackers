@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         expect(shipped.class_names.size() == 10 && shipped.class_names[0] == "pedestrian" &&
                shipped.class_names[9] == "motor" && shipped.detector.class_count == 10,
                "shipped class names define class_count");
-        expect(std::filesystem::path(shipped.engine_path).is_absolute(), "resolved shipped engine path");
+        expect(std::filesystem::path(shipped.model_path).is_absolute(), "resolved shipped model path");
         struct TemporaryDirectory {
             std::filesystem::path path = std::filesystem::temp_directory_path() /
                 ("mot-config-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("accepted invalid config: " + text);
         };
         const auto custom = load(R"(detector:
-  engine_path: "custom.engine"
+  model_path: "custom.onnx"
   input_width: 1280
   input_height: 736
   class_count: 2
@@ -66,7 +66,7 @@ tracker:
   gmc_method: "none"
   gmc_downscale: 4
 )");
-        expect(custom.engine_path == (directory / "custom.engine").string(), "relative engine");
+        expect(custom.model_path == (directory / "custom.onnx").string(), "relative model");
         expect(custom.detector.input_width == 1280 && custom.detector.input_height == 736 &&
                custom.detector.class_count == 2 && custom.detector.conf_threshold == 0.05 &&
                custom.detector.iou_threshold == 0.6 && custom.detector.max_det == 42,
@@ -105,15 +105,18 @@ tracker:
         expect(inferred_file.detector.class_count == 2, "class_count inferred from names file");
         expect(load("detector: {}\ntracker: {}\n").detector.class_count == 10,
                "class_count default without names");
-        expect(load("detector: {}\ntracker: {}\n").engine_path.empty(), "engine path is optional");
+        expect(load("detector: {}\ntracker: {}\n").model_path.empty(), "model path is optional");
         expect(load("---\ndetector: {}\ntracker: {}\n").detector.max_det == 300, "optional defaults");
         expect(std::get<mot::BoTSORTConfig>(
                    load("%YAML:1.0\n---\ndetector: {}\ntracker: { fuse_score: 1 }\n").tracker)
                    .fuse_score,
                "OpenCV YAML header and numeric boolean");
         const auto absolute_engine = (directory / "absolute.engine").string();
-        expect(load("detector: { engine_path: \"" + absolute_engine + "\" }\ntracker: {}\n").engine_path ==
-               absolute_engine, "absolute engine path");
+        expect(load("detector: { model_path: \"" + absolute_engine + "\" }\ntracker: {}\n").model_path ==
+               absolute_engine, "absolute model path");
+        expect(load("detector: { engine_path: \"legacy.engine\" }\ntracker: {}\n").model_path ==
+               (directory / "legacy.engine").string(), "legacy engine_path alias");
+        reject("detector: { model_path: a.onnx, engine_path: b.engine }\ntracker: {}\n");
         reject("");
         reject("detector: {}\n");
         reject("detector: [1, 2]\ntracker: {}\n");

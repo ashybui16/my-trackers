@@ -8,7 +8,6 @@ namespace mot {
 namespace {
 
 bool finiteMatrix(const cv::Mat& matrix) {
-    // Quét toàn bộ phần tử để loại NaN và vô cực trước khi dùng trạng thái.
     if (matrix.empty()) {
         return false;
     }
@@ -23,7 +22,6 @@ bool finiteMatrix(const cv::Mat& matrix) {
 }
 
 std::array<double, 4> stateXywh(const cv::Mat& mean) {
-    // Trích bốn thành phần hộp từ vector trạng thái 8 chiều.
     std::array<double, 4> result{};
     for (int index = 0; index < 4; ++index) {
         result[static_cast<std::size_t>(index)] = mean.at<double>(index, 0);
@@ -31,7 +29,7 @@ std::array<double, 4> stateXywh(const cv::Mat& mean) {
     return result;
 }
 
-}  // namespace
+}
 
 Track::Track(const Detection& detection, int detection_index)
     : initial_bbox_(detection.bbox_xyxy),
@@ -40,7 +38,6 @@ Track::Track(const Detection& detection, int detection_index)
       detection_index_(detection_index) {}
 
 BBox Track::bbox() const {
-    // Giữ kích thước có dấu sau GMC, cùng cách đổi state của Ultralytics.
     return mean_.empty() ? initial_bbox_ : xywhToXyxy(stateXywh(mean_));
 }
 
@@ -49,7 +46,6 @@ std::array<double, 4> Track::xywh() const {
 }
 
 void Track::activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id) {
-    // Cấp ID, khởi tạo trạng thái Kalman và ghi frame bắt đầu.
     if (track_id <= 0) {
         throw std::invalid_argument("track_id must be positive");
     }
@@ -66,7 +62,6 @@ void Track::activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id
 }
 
 void Track::predict() {
-    // Dự đoán frame kế và giữ nguyên kích thước có dấu như Ultralytics.
     if (kalman_filter_ == nullptr || mean_.empty() || covariance_.empty()) {
         return;
     }
@@ -82,7 +77,6 @@ void Track::predict() {
 }
 
 void Track::applyWarp(const cv::Mat& warp) {
-    // Bù chuyển động camera; khôi phục trạng thái cũ nếu phép biến đổi lỗi.
     if (mean_.empty() || covariance_.empty()) {
         return;
     }
@@ -100,11 +94,9 @@ void Track::applyWarp(const cv::Mat& warp) {
         covariance_ = previous_covariance;
         return;
     }
-    // Giữ nguyên kết quả hữu hạn, kể cả khi phép quay làm w/h âm.
 }
 
 void Track::update(const Track& detection_track, int frame_id) {
-    // Hiệu chỉnh Kalman từ detection mới, rồi cập nhật metadata của track.
     if (kalman_filter_ == nullptr || mean_.empty() || covariance_.empty()) {
         throw std::runtime_error("track must be activated before update");
     }
@@ -123,7 +115,6 @@ void Track::update(const Track& detection_track, int frame_id) {
 }
 
 void Track::reActivate(const Track& detection_track, int frame_id, bool new_id, int track_id) {
-    // Cập nhật track bị mất và tùy chọn cấp ID khác khi tìm lại.
     update(detection_track, frame_id);
     if (new_id) {
         if (track_id <= 0) {
@@ -135,13 +126,11 @@ void Track::reActivate(const Track& detection_track, int frame_id, bool new_id, 
 }
 
 void Track::markLost() {
-    // Giữ trạng thái Kalman để còn thử ghép trong các frame tiếp theo.
     state_ = TrackState::Lost;
 }
 
 void Track::markRemoved() {
-    // Đánh dấu hết thời gian theo dõi; tracker sẽ bỏ track khỏi pool hoạt động.
     state_ = TrackState::Removed;
 }
 
-}  // namespace mot
+}

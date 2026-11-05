@@ -8,12 +8,10 @@ namespace mot {
 
 BoTSORT::BoTSORT(BoTSORTConfig config)
     : config_(std::move(config)), gmc_(config_.gmc_method, config_.gmc_downscale) {
-    // Kiểm tra cấu hình trước khi xử lý frame đầu tiên.
     config_.validate();
 }
 
 void BoTSORT::reset() {
-    // Xóa lịch sử track, bộ đếm và dữ liệu camera cho chuỗi video mới.
     tracked_tracks_.clear();
     lost_tracks_.clear();
     removed_tracks_.clear();
@@ -29,7 +27,6 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
         throw std::invalid_argument("frame is required when gmc_method='sparseOptFlow'");
     }
     ++frame_id_;
-    // Chia detection theo điểm: nhóm cao để ghép chính, nhóm thấp để cứu track cũ.
     std::vector<TrackPtr> high_detections;
     std::vector<TrackPtr> low_detections;
     high_detections.reserve(detections.size());
@@ -50,7 +47,6 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
     std::vector<TrackPtr> newly_lost;
     std::vector<TrackPtr> newly_removed;
 
-    // Tách track chưa xác nhận khỏi track đã theo dõi; thêm track mất vào pool dự đoán.
     std::vector<TrackPtr> unconfirmed;
     std::vector<TrackPtr> confirmed;
     confirmed.reserve(tracked_tracks_.size());
@@ -63,7 +59,6 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
         }
     }
     const std::vector<TrackPtr> track_pool = jointTracks(confirmed, lost_tracks_);
-    // Dự đoán vị trí mới rồi bù dịch chuyển camera trước khi so hộp.
     for (const auto& track : track_pool) {
         track->predict();
     }
@@ -73,7 +68,6 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
         applyGMC(unconfirmed, warp);
     }
 
-    // Ghép điểm cao, thử lại với điểm thấp, rồi xác nhận hoặc tạo track mới.
     const auto first = firstAssociation(track_pool, high_detections, activated, refound);
     const auto second = secondAssociation(track_pool,
                                           first.first,
@@ -89,7 +83,6 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
                                                             newly_removed);
     initNewTracks(unconfirmed_result.first, unconfirmed_result.second, activated);
 
-    // Track mất quá thời gian chờ sẽ bị loại; cuối cùng gộp các nhóm và xuất kết quả.
     for (const auto& track : lost_tracks_) {
         if (frame_id_ - track->endFrame() > config_.track_buffer) {
             track->markRemoved();
@@ -105,7 +98,6 @@ std::pair<std::vector<int>, std::vector<int>> BoTSORT::firstAssociation(
     const std::vector<TrackPtr>& detections,
     std::vector<TrackPtr>& activated,
     std::vector<TrackPtr>& refound) {
-    // Track đang theo dõi được cập nhật; track từng mất được kích hoạt lại.
     const AssignmentResult result = associate(track_pool, detections, config_.match_thresh, config_.fuse_score);
     for (const auto& match : result.matches) {
         const auto& track = track_pool[static_cast<std::size_t>(match.first)];
@@ -129,7 +121,6 @@ std::pair<std::vector<int>, std::vector<int>> BoTSORT::secondAssociation(
     std::vector<TrackPtr>& activated,
     std::vector<TrackPtr>& /*refound*/,
     std::vector<TrackPtr>& newly_lost) {
-    // Chỉ track đang hoạt động được ghép với detection điểm thấp.
     std::vector<TrackPtr> remaining_active;
     for (int index : unmatched_pool_indices) {
         const auto& track = track_pool[static_cast<std::size_t>(index)];
@@ -151,7 +142,6 @@ std::pair<std::vector<int>, std::vector<int>> BoTSORT::secondAssociation(
             unmatched_active.push_back(static_cast<int>(index));
         }
     }
-    // Track vẫn không ghép được chuyển sang LOST.
     for (int index : unmatched_active) {
         const auto& track = remaining_active[static_cast<std::size_t>(index)];
         if (track->state() != TrackState::Lost) {
@@ -159,7 +149,6 @@ std::pair<std::vector<int>, std::vector<int>> BoTSORT::secondAssociation(
             newly_lost.push_back(track);
         }
     }
-    // Detection điểm thấp chỉ cứu track cũ, không tạo track mới.
     return {unmatched_pool_indices, unmatched_high_detection_indices};
 }
 
@@ -182,7 +171,6 @@ std::pair<std::vector<int>, std::vector<TrackPtr>> BoTSORT::unconfirmedAssociati
         }
         return {indices, remaining};
     }
-    // Detection điểm cao xác nhận track tạm; track tạm không ghép được bị loại.
     const AssignmentResult result = associate(unconfirmed, remaining, 0.7, config_.fuse_score);
     for (const auto& match : result.matches) {
         const auto& track = unconfirmed[static_cast<std::size_t>(match.first)];
@@ -200,7 +188,6 @@ std::pair<std::vector<int>, std::vector<TrackPtr>> BoTSORT::unconfirmedAssociati
 void BoTSORT::initNewTracks(const std::vector<int>& indices,
                             const std::vector<TrackPtr>& detections,
                             std::vector<TrackPtr>& activated) {
-    // Chỉ detection chưa ghép và đủ điểm mới nhận ID riêng.
     for (int index : indices) {
         const auto& track = detections[static_cast<std::size_t>(index)];
         if (track->score() < config_.new_track_thresh) {
@@ -215,7 +202,6 @@ void BoTSORT::mergePools(const std::vector<TrackPtr>& activated,
                          const std::vector<TrackPtr>& refound,
                          const std::vector<TrackPtr>& newly_lost,
                          const std::vector<TrackPtr>& newly_removed) {
-    // Gộp track hoạt động/tìm lại, cập nhật nhóm mất, rồi xóa bản sao trùng.
     std::vector<TrackPtr> tracked;
     for (const auto& track : tracked_tracks_) {
         if (track->state() == TrackState::Tracked) {
@@ -226,14 +212,14 @@ void BoTSORT::mergePools(const std::vector<TrackPtr>& activated,
     tracked = jointTracks(tracked, refound);
     std::vector<TrackPtr> lost = subtractTracks(lost_tracks_, tracked);
     lost.insert(lost.end(), newly_lost.begin(), newly_lost.end());
-    // Dọn theo lịch sử frame trước: track vừa REMOVED còn được thử ghép ở frame sau.
+    // Prune using the previous frame's history: a just-REMOVED track can still be matched next frame.
     lost = subtractTracks(lost, removed_tracks_);
 
     DuplicateResult duplicate = removeDuplicateTracks(tracked, lost);
     tracked_tracks_ = std::move(duplicate.tracked);
     lost_tracks_ = std::move(duplicate.lost);
 
-    // Append rồi chỉ giữ 1000 phần tử gần nhất, cùng thứ tự với Ultralytics.
+    // Append, then keep only the latest 1000 entries, in the same order as Ultralytics.
     removed_tracks_.insert(removed_tracks_.end(), newly_removed.begin(), newly_removed.end());
     constexpr std::size_t removed_buffer = 1000;
     if (removed_tracks_.size() > removed_buffer) {
@@ -242,7 +228,6 @@ void BoTSORT::mergePools(const std::vector<TrackPtr>& activated,
 }
 
 std::vector<TrackOutput> BoTSORT::currentOutputs() const {
-    // Chỉ trả track đang theo dõi và đã được xác nhận.
     std::vector<TrackOutput> outputs;
     outputs.reserve(tracked_tracks_.size());
     for (const auto& track : tracked_tracks_) {
@@ -254,4 +239,4 @@ std::vector<TrackOutput> BoTSORT::currentOutputs() const {
     return outputs;
 }
 
-}  // namespace mot
+}

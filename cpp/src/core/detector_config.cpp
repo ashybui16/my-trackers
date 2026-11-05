@@ -20,4 +20,4 @@ void DetectorConfig::validate() const {
     }
 }
 
-}  // namespace mot
+}

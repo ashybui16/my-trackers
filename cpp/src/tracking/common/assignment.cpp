@@ -9,7 +9,6 @@ namespace mot {
 namespace {
 
 std::vector<int> hungarian(const std::vector<double>& input, int size) {
-    // Tăng dần phép ghép tối ưu bằng thế u/v và đường tăng trong ma trận vuông.
     std::vector<double> u(static_cast<std::size_t>(size) + 1, 0.0);
     std::vector<double> v(static_cast<std::size_t>(size) + 1, 0.0);
     std::vector<int> p(static_cast<std::size_t>(size) + 1, 0);
@@ -70,11 +69,10 @@ std::vector<int> hungarian(const std::vector<double>& input, int size) {
     return row_to_column;
 }
 
-}  // namespace
+}
 
 AssignmentResult linearAssignment(const std::vector<std::vector<double>>& cost,
                                   double cost_limit) {
-    // Kiểm tra ma trận chi phí trước khi thêm hàng/cột giả cho lựa chọn không ghép.
     if (!std::isfinite(cost_limit) || cost_limit < 0.0) {
         throw std::invalid_argument("cost_limit must be finite and non-negative");
     }
@@ -101,7 +99,7 @@ AssignmentResult linearAssignment(const std::vector<std::vector<double>>& cost,
         return result;
     }
 
-    // Hàng/cột giả cho phép bỏ ghép; cặp thật chỉ có lợi khi chi phí không vượt ngưỡng.
+    // Dummy rows/columns allow leaving items unmatched; a real pair only wins when its cost is within the limit.
     const int size = rows + columns;
     constexpr double forbidden = 1.0e12;
     std::vector<double> padded(static_cast<std::size_t>(size) * size, 0.0);
@@ -113,7 +111,6 @@ AssignmentResult linearAssignment(const std::vector<std::vector<double>>& cost,
         }
     }
 
-    // Giải bài toán vuông rồi đổi về chỉ số hàng/cột thật.
     const std::vector<int> assignment = hungarian(padded, size);
     std::vector<bool> matched_columns(static_cast<std::size_t>(columns), false);
     for (int row = 0; row < rows; ++row) {
@@ -134,4 +131,4 @@ AssignmentResult linearAssignment(const std::vector<std::vector<double>>& cost,
     return result;
 }
 
-}  // namespace mot
+}

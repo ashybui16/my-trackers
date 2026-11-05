@@ -10,7 +10,6 @@
 namespace mot {
 namespace {
 
-// Một overload cho mỗi kiểu cấu hình; std::visit báo lỗi biên dịch nếu thiếu.
 std::unique_ptr<ITracker> makeTracker(const BoTSORTConfig& config) {
     return std::make_unique<BoTSORT>(config);
 }
@@ -36,7 +35,7 @@ TrackerConfig defaultFor(std::string_view type) {
     }
 }
 
-}  // namespace
+}
 
 std::string_view trackerType(const TrackerConfig& config) {
     return std::visit([](const auto& value) {
@@ -61,4 +60,4 @@ std::unique_ptr<ITracker> createTracker(const TrackerConfig& config) {
     return std::visit([](const auto& value) { return makeTracker(value); }, config);
 }
 
-}  // namespace mot
+}

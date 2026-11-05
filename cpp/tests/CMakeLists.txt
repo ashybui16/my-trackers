@@ -23,12 +23,12 @@ mot_add_test(annotator
     ARGS "${MOT_REPO_WEIGHTS}/config.yaml"
     LABELS "visualization;cpu")
 mot_add_test(postprocess
-    SOURCES tensorrt/test_postprocess.cpp
-    LIBS mot_tensorrt_postprocess
-    LABELS "tensorrt;cpu")
+    SOURCES detection/test_postprocess.cpp
+    LIBS mot_yolo_postprocess
+    LABELS "detection;cpu")
 mot_add_test(performance_regressions
     SOURCES regression/test_performance_regressions.cpp
-    LIBS mot_tracking mot_tensorrt_postprocess opencv_video opencv_imgproc
+    LIBS mot_tracking mot_yolo_postprocess opencv_video opencv_imgproc
     LABELS "regression;cpu")
 
 if(MOT_BUILD_GPU_TESTS AND MOT_WITH_TENSORRT)
@@ -36,5 +36,14 @@ if(MOT_BUILD_GPU_TESTS AND MOT_WITH_TENSORRT)
         SOURCES tensorrt/test_inference_gpu.cpp
         LIBS mot_tensorrt mot_pipeline CUDA::cudart opencv_videoio
         LABELS "gpu"
+        SKIP_RETURN_CODE 77)
+endif()
+
+if(MOT_WITH_ONNXRUNTIME)
+    mot_add_test(inference_onnx
+        SOURCES onnxruntime/test_inference_onnx.cpp
+        LIBS mot_onnxruntime mot_pipeline opencv_videoio
+        ARGS "${MOT_REPO_WEIGHTS}/26c1.onnx"
+        LABELS "onnxruntime;cpu"
         SKIP_RETURN_CODE 77)
 endif()

@@ -82,7 +82,6 @@ std::filesystem::path resolve(const std::filesystem::path& directory, const std:
     return (directory / path).lexically_normal();
 }
 
-// Một overload cho mỗi tracker: đọc mục `tracker.<type>` vào cấu hình tương ứng.
 void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTConfig& config) {
     checkKeys(node, {"track_high_thresh", "track_low_thresh", "new_track_thresh",
                      "track_buffer", "match_thresh", "fuse_score", "gmc_method",
@@ -100,7 +99,7 @@ void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTCo
 TrackerConfig readTrackerConfig(const cv::FileNode& node) {
     if (!node.isMap()) throw std::invalid_argument("tracker must be a mapping");
     if (node["type"].isNone()) {
-        // Định dạng cũ: khóa BoT-SORT nằm thẳng dưới `tracker`.
+        // Legacy format: BoT-SORT keys directly under `tracker`.
         BoTSORTConfig config;
         readTracker(node, "tracker", config);
         return config;
@@ -145,7 +144,7 @@ std::vector<std::string> readClassNames(const cv::FileNode& node,
         if (name.empty()) throw std::invalid_argument("class_names entries must not be empty");
         names.push_back(std::move(name));
     }
-    if (class_count <= 0) return names;  // class_count is inferred from the list.
+    if (class_count <= 0) return names;
     if (static_cast<int>(names.size()) > class_count) {
         throw std::invalid_argument("class_names has more entries than class_count");
     }
@@ -153,7 +152,7 @@ std::vector<std::string> readClassNames(const cv::FileNode& node,
     return names;
 }
 
-}  // namespace
+}
 
 std::vector<std::string> loadClassNames(const std::string& yaml_path, int class_count) {
     std::ifstream file(yaml_path);
@@ -187,7 +186,6 @@ std::vector<std::string> loadClassNames(const std::string& yaml_path, int class_
             }
             names[static_cast<std::size_t>(id)] = name;
         } catch (const std::out_of_range&) {
-            // Bỏ qua chỉ số lớp không hợp lệ.
         }
     }
     return names;
@@ -215,18 +213,22 @@ PipelineConfig PipelineConfig::fromFile(const std::string& path) {
         }
         const auto directory = std::filesystem::absolute(path).parent_path();
         const auto detector_node = storage["detector"];
-        checkKeys(detector_node, {"engine_path", "class_names", "input_width", "input_height",
+        checkKeys(detector_node, {"model_path", "engine_path", "class_names", "input_width", "input_height",
                                   "class_count", "conf_threshold", "iou_threshold", "max_det"},
                   "detector");
         PipelineConfig config;
-        readValue(detector_node, "engine_path", config.engine_path);
+        if (!detector_node["model_path"].isNone() && !detector_node["engine_path"].isNone()) {
+            throw std::invalid_argument("detector.model_path and its legacy alias detector.engine_path "
+                                        "must not both be set");
+        }
+        readValue(detector_node, "model_path", config.model_path);
+        readValue(detector_node, "engine_path", config.model_path);
         readValue(detector_node, "input_width", config.detector.input_width);
         readValue(detector_node, "input_height", config.detector.input_height);
         readValue(detector_node, "class_count", config.detector.class_count);
         readValue(detector_node, "conf_threshold", config.detector.conf_threshold);
         readValue(detector_node, "iou_threshold", config.detector.iou_threshold);
         readValue(detector_node, "max_det", config.detector.max_det);
-        // class_count may be omitted when class_names is given; it is then the number of names.
         const bool has_class_count = !detector_node["class_count"].isNone();
         config.class_names = readClassNames(detector_node["class_names"], directory,
                                             has_class_count ? config.detector.class_count : 0);
@@ -236,9 +238,8 @@ PipelineConfig PipelineConfig::fromFile(const std::string& path) {
         config.detector.validate();
         config.tracker = readTrackerConfig(storage["tracker"]);
         validate(config.tracker);
-        // engine_path là tùy chọn: ứng dụng dùng detector khác có thể bỏ qua nó.
-        if (!config.engine_path.empty()) {
-            config.engine_path = resolve(directory, config.engine_path).string();
+        if (!config.model_path.empty()) {
+            config.model_path = resolve(directory, config.model_path).string();
         }
         return config;
     } catch (const std::exception& error) {
@@ -246,4 +247,4 @@ PipelineConfig PipelineConfig::fromFile(const std::string& path) {
     }
 }
 
-}  // namespace mot
+}

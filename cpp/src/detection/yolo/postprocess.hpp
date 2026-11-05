@@ -8,7 +8,6 @@
 
 namespace mot::detail {
 
-// Thông tin letterbox và kích thước frame để đưa box đã chọn về ảnh gốc.
 struct OutputTransform {
     double scale{1.0};
     int pad_x{0};
@@ -17,16 +16,14 @@ struct OutputTransform {
     int original_height{0};
 };
 
-// Các tham số lọc nội bộ; không làm thay đổi cấu hình/public API detector.
 struct OutputOptions {
     int class_count{10};
-    double conf_threshold{0.01};
+    double conf_threshold{0.10};
     double iou_threshold{0.70};
     int max_det{300};
     OutputTransform transform{};
 };
 
-// Per-detector scratch storage; the standalone overload below owns local storage.
 struct RawCandidate {
     std::array<float, 4> box{};
     float score{0.0F};
@@ -42,9 +39,8 @@ struct OutputWorkspace {
 std::vector<mot::Detection> processOutput(const float* output, int candidate_count,
                                                 const OutputOptions& options, OutputWorkspace& workspace);
 
-// Giải mã output raw YOLO [1,4+class_count,N] và lọc box.
 std::vector<mot::Detection> processOutput(const float* output,
                                                   int candidate_count,
                                                   const OutputOptions& options);
 
-}  // namespace mot::detail
+}

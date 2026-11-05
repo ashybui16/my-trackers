@@ -13,7 +13,6 @@ namespace mot {
 
 GMC::GMC(std::string method, int downscale)
     : method_(std::move(method)), downscale_(downscale) {
-    // Chỉ nhận phương pháp hỗ trợ và tỉ lệ thu nhỏ dương.
     if (method_ != "sparseOptFlow" && method_ != "none") {
         throw std::invalid_argument("method must be 'sparseOptFlow' or 'none'");
     }
@@ -23,14 +22,12 @@ GMC::GMC(std::string method, int downscale)
 }
 
 cv::Mat GMC::identityWarp() {
-    // Ma trận affine không dịch chuyển dùng khi chưa có ước lượng hợp lệ.
     return cv::Mat::eye(2, 3, CV_64F);
 }
 
 cv::Mat GMC::toGray(const cv::Mat& frame) {
     // A caller may retain a shallow snapshot through previousFrame().
     if (current_frame_.u != nullptr && current_frame_.u->refcount > 1) current_frame_.release();
-    // Đổi sang ảnh xám phù hợp optical flow rồi thu nhỏ để xử lý nhanh hơn.
     cv::Mat gray;
     if (frame.channels() == 1) {
         gray = frame;
@@ -56,7 +53,6 @@ cv::Mat GMC::toGray(const cv::Mat& frame) {
 }
 
 void GMC::remember(const cv::Mat& gray, const std::vector<cv::Point2f>& keypoints) {
-    // Giữ buffer nội bộ làm ảnh lịch sử; chỉ copy khi ảnh không thuộc workspace.
     if (gray.data == current_frame_.data) std::swap(previous_frame_, current_frame_);
     else previous_frame_ = gray.clone();
     previous_keypoints_ = keypoints;
@@ -64,7 +60,6 @@ void GMC::remember(const cv::Mat& gray, const std::vector<cv::Point2f>& keypoint
 }
 
 cv::Mat GMC::apply(const cv::Mat& frame) {
-    // Tìm điểm đặc trưng, theo dõi sang frame mới, ước lượng affine bằng RANSAC.
     if (frame.empty() || frame.dims != 2 || frame.rows < 1 || frame.cols < 1) {
         throw std::invalid_argument("frame must be a non-empty grayscale or BGR image");
     }
@@ -96,7 +91,6 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
             return identityWarp();
         }
 
-        // Optical flow ghép điểm cũ với frame hiện tại; bỏ các điểm theo dõi lỗi.
         auto& matched = matched_;
         auto& status = status_;
         auto& error = error_;
@@ -117,7 +111,6 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
             }
         }
 
-        // Chỉ dùng affine khi đủ cặp điểm và mọi hệ số đều hữu hạn.
         cv::Mat warp = identityWarp();
         if (previous_good.size() >= 5) {
             cv::Mat inliers;
@@ -165,7 +158,6 @@ cv::Mat GMC::apply(const cv::Mat& frame) {
 }
 
 void GMC::reset() {
-    // Bỏ lịch sử frame để lần apply sau bắt đầu từ ma trận đơn vị.
     previous_frame_.release();
     current_frame_.release();
     gray_buffer_.release();
@@ -177,8 +169,7 @@ void GMC::reset() {
 }
 
 void GMC::warn(const std::string& message) {
-    // Ghi cảnh báo khi không ước lượng được chuyển động camera.
     std::cerr << "warning: " << message << '\n';
 }
 
-}  // namespace mot
+}

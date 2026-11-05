@@ -1,5 +1,3 @@
-# Shared helpers for the mot C++ project.
-
 function(mot_set_warnings target)
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic ${ARGN})
 endfunction()

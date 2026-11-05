@@ -48,4 +48,4 @@ inline LetterboxInfo preprocess(const cv::Mat &frame, cv::Mat &canvas, float *ch
     }
     return info;
 }
-} // namespace mot::detail
+}

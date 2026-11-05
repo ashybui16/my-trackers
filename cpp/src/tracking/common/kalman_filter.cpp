@@ -7,7 +7,6 @@ namespace mot {
 namespace {
 
 void validateMeasurement(const std::array<double, 4>& measurement) {
-    // Phép đo phải hữu hạn và có kích thước hộp dương.
     for (double value : measurement) {
         if (!std::isfinite(value)) {
             throw std::invalid_argument("measurement must contain only finite values");
@@ -19,7 +18,6 @@ void validateMeasurement(const std::array<double, 4>& measurement) {
 }
 
 cv::Mat measurementMat(const std::array<double, 4>& measurement) {
-    // Đổi hộp 4 phần tử sang vector cột OpenCV cho phép toán ma trận.
     cv::Mat result(4, 1, CV_64F);
     for (int index = 0; index < 4; ++index) {
         result.at<double>(index, 0) = measurement[static_cast<std::size_t>(index)];
@@ -27,10 +25,9 @@ cv::Mat measurementMat(const std::array<double, 4>& measurement) {
     return result;
 }
 
-}  // namespace
+}
 
 KalmanFilterXYWH::KalmanFilterXYWH() {
-    // Vị trí ở frame sau bằng vị trí hiện tại cộng vận tốc; phép đo lấy bốn tọa độ đầu.
     motion_mat_ = cv::Mat::eye(8, 8, CV_64F);
     for (int index = 0; index < 4; ++index) {
         motion_mat_.at<double>(index, index + 4) = 1.0;
@@ -42,7 +39,6 @@ KalmanFilterXYWH::KalmanFilterXYWH() {
 }
 
 void KalmanFilterXYWH::validateState(const KalmanState& state) {
-    // Chặn ma trận sai kích thước hoặc có NaN/vô cực trước khi tính toán.
     if (state.mean.rows != 8 || state.mean.cols != 1 || state.mean.type() != CV_64F ||
         state.covariance.rows != 8 || state.covariance.cols != 8 || state.covariance.type() != CV_64F) {
         throw std::invalid_argument("mean must have shape (8, 1) and covariance shape (8, 8)");
@@ -62,7 +58,6 @@ void KalmanFilterXYWH::validateState(const KalmanState& state) {
 }
 
 KalmanState KalmanFilterXYWH::initiate(const std::array<double, 4>& measurement) const {
-    // Đặt hộp đo làm trạng thái ban đầu, vận tốc bằng 0 và độ bất định theo kích thước hộp.
     validateMeasurement(measurement);
     const cv::Mat value = measurementMat(measurement);
     KalmanState state;
@@ -90,7 +85,6 @@ KalmanState KalmanFilterXYWH::initiate(const std::array<double, 4>& measurement)
 }
 
 KalmanState KalmanFilterXYWH::predict(const KalmanState& state) const {
-    // Tăng độ bất định theo kích thước, rồi truyền trạng thái qua mô hình chuyển động.
     validateState(state);
     std::array<double, 4> standard_position{};
     std::array<double, 4> standard_velocity{};
@@ -113,7 +107,6 @@ KalmanState KalmanFilterXYWH::predict(const KalmanState& state) const {
 }
 
 std::vector<KalmanState> KalmanFilterXYWH::multiPredict(const std::vector<KalmanState>& states) const {
-    // Lặp phép dự đoán độc lập và giữ nguyên thứ tự đầu vào.
     std::vector<KalmanState> result;
     result.reserve(states.size());
     for (const auto& state : states) {
@@ -124,7 +117,6 @@ std::vector<KalmanState> KalmanFilterXYWH::multiPredict(const std::vector<Kalman
 
 KalmanState KalmanFilterXYWH::project(const KalmanState& state,
                                       std::optional<double> confidence) const {
-    // Chiếu trạng thái sang hộp đo và cộng nhiễu đo, có xét điểm tin cậy nếu có.
     validateState(state);
     cv::Mat projected_mean = update_mat_ * state.mean;
     const double width = state.mean.at<double>(2, 0);
@@ -148,7 +140,6 @@ KalmanState KalmanFilterXYWH::project(const KalmanState& state,
 KalmanState KalmanFilterXYWH::update(const KalmanState& state,
                                      const std::array<double, 4>& measurement,
                                      std::optional<double> confidence) const {
-    // Tính Kalman gain từ dự đoán, rồi sửa trung bình và hiệp phương sai bằng sai số đo.
     validateMeasurement(measurement);
     validateState(state);
     const KalmanState projected = project(state, confidence);
@@ -171,7 +162,6 @@ std::vector<double> KalmanFilterXYWH::gatingDistance(
     const std::vector<std::array<double, 4>>& measurements,
     bool only_position,
     const std::string& metric) const {
-    // So từng hộp đo với trạng thái chiếu bằng khoảng cách Euclid hoặc Mahalanobis.
     if (metric != "maha" && metric != "gaussian") {
         throw std::invalid_argument("metric must be 'maha' or 'gaussian'");
     }
@@ -197,4 +187,4 @@ std::vector<double> KalmanFilterXYWH::gatingDistance(
     return result;
 }
 
-}  // namespace mot
+}

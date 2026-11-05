@@ -1,4 +1,4 @@
-# C++ TensorRT video pipeline
+# C++ video pipeline (TensorRT / ONNX Runtime)
 
 PLAN2 adds a C++17 multi-object-tracking library under `cpp/`, organised so new
 trackers can be added and so another application can consume it as a CMake package.
@@ -10,6 +10,7 @@ trackers can be added and so another application can consume it as a CMake packa
 | `mot::pipeline` | `Pipeline` (any `IDetector` + any `ITracker`), strict YAML `PipelineConfig` | no |
 | `mot::visualization` | `Annotator` for tracks and detections | no |
 | `mot::tensorrt` | `TensorRTDetector` (implements `IDetector`) | yes |
+| `mot::onnxruntime` | `OnnxRuntimeDetector` (implements `IDetector`, CPU execution provider) | no |
 | `mot::mot` | umbrella over everything that was built | |
 
 `mot_video` (in `cpp/apps/`) is the video CLI: video in, annotated MP4 and
@@ -17,13 +18,14 @@ VisDrone/MOT text out.
 
 ```
 cpp/
-├── include/mot/{core,detection,tracking,pipeline,tensorrt,visualization}/  # public API
+├── include/mot/{core,detection,tracking,pipeline,tensorrt,onnxruntime,visualization}/  # public API
 ├── src/<module>/            # implementation + private headers (never installed)
+│   ├── detection/yolo/      # letterbox preprocess + YOLO decode/NMS shared by both detectors
 │   └── tracking/{common,botsort}/   # shared SORT building blocks, one folder per tracker
 ├── apps/mot_video/          # CLI
 ├── tests/<module>/          # CTest suites (tracker contract test covers every tracker)
 ├── benchmarks/
-└── cmake/                   # helpers, FindTensorRT, package config
+└── cmake/                   # helpers, FindTensorRT, FindOnnxRuntime, package config
 ```
 
 All code is in namespace `mot`. To add a tracker, follow
@@ -48,6 +50,9 @@ the latest 1000 entries, including repeated references as in Ultralytics.
 
 ## Detector contract
 
+Both detectors share the same contract and the same preprocessing and decode/NMS code
+(`cpp/src/detection/yolo/`), so they produce the same detections up to numerical precision.
+
 The detector accepts non-empty 2D BGR frames of type `CV_8UC3`. Frame sizes may
 vary; letterboxing maps each frame to the engine's fixed `[1,3,H,W]` input,
 which must match `DetectorConfig`. Both bindings must use linear FP32 device
@@ -61,24 +66,49 @@ computation internally; it does not require FP16 input/output bindings.
 Tensor buffers on CPU/GPU and the letterbox canvas are allocated once during
 construction and reused by `detect()`.
 
+`OnnxRuntimeDetector` loads a `.onnx` model exported with `dynamic=False` and
+`nms=False` (Ultralytics `end2end=False`), e.g. `weights/26c1.onnx`: input
+`images` `[1,3,640,640]` and output `output0` `[1,14,34000]`, both FP32. It runs on
+the ONNX Runtime CPU execution provider with full graph optimization; the fourth
+constructor argument `intra_op_threads` (default 0 = ONNX Runtime's choice) sets the
+thread count. Input/output tensors are bound to preallocated buffers, so
+`detect()` does not allocate tensors per frame.
+
 ## Build
 
-The target is Linux x86_64 with OpenCV 4, CUDA and TensorRT 8.6.x. Configure
-from the repository root or from `cpp/`:
+The target is Linux x86_64 with OpenCV 4, plus CUDA and TensorRT 8.6.x for the
+TensorRT detector and/or the ONNX Runtime C/C++ SDK for the ONNX detector. Get the
+SDK from the official prebuilt release (the Python `onnxruntime` wheel has no C++ headers):
+
+```bash
+curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz \
+  | sudo tar xz -C /opt   # → /opt/onnxruntime-linux-x64-1.23.2
+```
+
+Configure from the repository root or from `cpp/`:
 
 ```bash
 cmake -S . -B /tmp/my-trackers-cpp-build \
   -DTENSORRT_ROOT=/opt/TensorRT-8.6.1.6 \
   -DCUDAToolkit_ROOT=/usr/local/cuda \
+  -DONNXRUNTIME_ROOT=/opt/onnxruntime-linux-x64-1.23.2 \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build /tmp/my-trackers-cpp-build -j
 ctest --test-dir /tmp/my-trackers-cpp-build --output-on-failure
 ```
 
-Use `-DMOT_WITH_TENSORRT=OFF` for a CPU-only build (no detector backend, no
-`mot_video`). Apps and tests are built by default only when this repository is
+`MOT_WITH_TENSORRT` and `MOT_WITH_ONNXRUNTIME` (both ON by default) are switched
+off with a configure warning when their dependency is not found. `ONNXRUNTIME_ROOT`
+(CMake or environment variable) is optional when the SDK is extracted as
+`/opt/onnxruntime-linux-x64-<version>`. Use `-DMOT_WITH_TENSORRT=OFF` with ONNX Runtime
+for a GPU-free build that still has a detector and `mot_video`; with both backends off
+only the libraries and CPU tests are built (no `mot_video`). An installed `mot_video`
+needs `libonnxruntime.so` on the loader path (e.g. `LD_LIBRARY_PATH`), as for TensorRT. Apps and tests are built by default only when this repository is
 the top-level project. The tracking, tracker-contract, pipeline, configuration,
-annotator, postprocess and performance-regression tests are CPU-only. To enable the separate TensorRT smoke test,
+annotator, postprocess and performance-regression tests are CPU-only. With ONNX
+Runtime, `mot_inference_onnx` (labels `onnxruntime;cpu`) runs `weights/26c1.onnx`
+(override with `MOT_ONNX_MODEL_PATH`; optional `MOT_VIDEO_PATH` frame source) and is
+skipped when the model is missing. To enable the separate TensorRT smoke test,
 configure with `-DMOT_BUILD_GPU_TESTS=ON`, set `MOT_ENGINE_PATH` to a
 GPU-compatible engine, then run `ctest -L gpu`; the test is skipped when the
 environment variable is absent.
@@ -103,13 +133,13 @@ are `frame,id,x,y,width,height,confidence,class,-1,-1`; frame and class IDs
 are one-based. Incomplete inference only leaves temporary dot files, which
 are removed on failure. Pass `--overwrite` to replace existing outputs.
 
-`weights/config.yaml` stores the engine path, class names and all detector/tracker
+`weights/config.yaml` stores the model path, class names and all detector/tracker
 parameters. The tracker is selected by `tracker.type`; its parameters live in a
 section of the same name:
 
 ```yaml
 detector:
-  engine_path: "26leaf1.engine"   # optional for apps that use another IDetector
+  model_path: "26leaf1.engine"   # .engine → TensorRT, .onnx → ONNX Runtime; optional for custom IDetectors
   class_names: [pedestrian, people, bicycle, ...]  # index = class_id
   # class_count: 10  # optional; defaults to the number of class_names
 tracker:
@@ -123,8 +153,11 @@ Runtime parameter values come from the selected YAML; benchmark comparisons must
 Run from the repository root, pass `--config /path/to/config.yaml`, or set
 `MOT_CONFIG_PATH`. Priority is `--config`, then `MOT_CONFIG_PATH`, then
 `weights/config.yaml`. CLI parameter flags override YAML regardless of argument
-order. Relative YAML engine paths resolve against the config directory; an
-`--engine` override resolves against the working directory. `--class-count`
+order. The detector backend is chosen from the model extension (`.onnx` → ONNX Runtime,
+`.engine`/`.trt`/`.plan` → TensorRT); `mot_video --help` lists the backends built in.
+`engine_path` is still accepted as the legacy name of `model_path` (setting both is an
+error). Relative YAML model paths resolve against the config directory; a `--model`
+(alias `--engine`) override resolves against the working directory. `--class-count`
 overrides the number of detector classes. `--tracker TYPE` selects another tracker
 (its defaults are used unless the YAML type matches). Both `detector` and `tracker` mappings
 are required; omitted fields use C++ defaults. Unknown/duplicate keys, wrong types
@@ -150,6 +183,7 @@ Either vendor the folder or install it:
 ```cmake
 # Option A: source tree (only the libraries are built)
 set(MOT_WITH_TENSORRT ON)            # OFF if you bring your own detector
+set(MOT_WITH_ONNXRUNTIME ON)         # CPU ONNX detector; needs ONNXRUNTIME_ROOT
 add_subdirectory(path/to/my-trackers/cpp mot)
 # Option B: cmake --install <build> --prefix <prefix>, then
 find_package(mot CONFIG REQUIRED)    # with CMAKE_PREFIX_PATH=<prefix>
@@ -162,12 +196,13 @@ Detection and tracking from a YAML file:
 ```cpp
 #include <mot/pipeline/config.hpp>
 #include <mot/pipeline/pipeline.hpp>
-#include <mot/tensorrt/detector.hpp>
+#include <mot/tensorrt/detector.hpp>      // or <mot/onnxruntime/detector.hpp>
 #include <mot/tracking/factory.hpp>
 
 auto config = mot::PipelineConfig::fromFile("weights/config.yaml");
 mot::Pipeline pipeline(
-    std::make_unique<mot::TensorRTDetector>(config.engine_path, config.detector, config.class_names),
+    std::make_unique<mot::TensorRTDetector>(config.model_path, config.detector, config.class_names),
+    // or std::make_unique<mot::OnnxRuntimeDetector>(config.model_path, config.detector, config.class_names)
     mot::createTracker(config.tracker));
 
 // Each call is synchronous and owns state for this stream.

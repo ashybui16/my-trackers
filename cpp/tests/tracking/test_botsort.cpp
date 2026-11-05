@@ -18,26 +18,22 @@
 namespace {
 
 void expect(bool condition, const std::string& message) {
-    // Dừng bài test tại điều kiện sai đầu tiên.
     if (!condition) {
         throw std::runtime_error(message);
     }
 }
 
 void expectNear(double actual, double expected, double tolerance, const std::string& message) {
-    // So số thực bằng sai số cho phép thay vì so trực tiếp.
     if (!std::isfinite(actual) || std::abs(actual - expected) > tolerance) {
         throw std::runtime_error(message + ": expected " + std::to_string(expected) + ", got " + std::to_string(actual));
     }
 }
 
 mot::Detection detection(double x = 0.0, double score = 0.9, int class_id = 0) {
-    // Tạo hộp 10x10 để các ca kiểm thử chỉ cần đổi tọa độ x.
     return {{x, 0.0, x + 10.0, 10.0}, score, class_id};
 }
 
 void testTypesGeometryAssignment() {
-    // Kiểm tra dữ liệu đầu vào, IoU, ghép ma trận và ngưỡng cấu hình.
     bool rejected = false;
     try {
         mot::Detection invalid{{0.0, 0.0, 0.0, 1.0}, 0.5, 0};
@@ -77,8 +73,8 @@ void testTypesGeometryAssignment() {
 }
 
 void testIouMatchesUltralytics() {
-    // Golden từ matching.iou_distance/bbox_ioa, vendored Ultralytics 8.4.157.
-    // Bao phủ epsilon, float32, hộp đảo góc và hợp bằng 0 sau GMC.
+    // Golden values from matching.iou_distance/bbox_ioa, vendored Ultralytics 8.4.157.
+    // Covers epsilon, float32, inverted boxes and zero union after GMC.
     struct Case {
         mot::BBox first;
         mot::BBox second;
@@ -109,7 +105,6 @@ void testIouMatchesUltralytics() {
 }
 
 void testKalman() {
-    // Khởi tạo, dự đoán và hiệu chỉnh phải giữ trạng thái/hiệp phương sai hợp lệ.
     mot::KalmanFilterXYWH kalman;
     const auto initial = kalman.initiate({10.0, 20.0, 4.0, 8.0});
     expectNear(initial.mean.at<double>(0, 0), 10.0, 1e-12, "Kalman initial center");
@@ -122,7 +117,6 @@ void testKalman() {
 }
 
 void testLifecycle() {
-    // Theo dõi vòng đời: tạo, mất, hết hạn, xác nhận lại và reset ID.
     mot::BoTSORTConfig config;
     config.gmc_method = "none";
     config.track_buffer = 0;
@@ -159,7 +153,6 @@ void testLifecycle() {
 }
 
 void testGmcRequirement() {
-    // Optical flow cần frame ảnh khi tracker cập nhật.
     mot::BoTSORT tracker;
     bool rejected = false;
     try {
@@ -171,7 +164,6 @@ void testGmcRequirement() {
 }
 
 void testSparseGmcTranslation() {
-    // Tạo ảnh dịch chuyển nhân tạo để đo affine và nhánh thiếu đặc trưng.
     cv::Mat frame = cv::Mat::zeros(160, 200, CV_8UC1);
     for (int x = 15; x < 190; x += 20) {
         cv::circle(frame, cv::Point(x, 40 + (x % 50)), 4, cv::Scalar(255), -1);
@@ -197,7 +189,7 @@ void testSparseGmcTranslation() {
 }
 
 void testWarpMatchesUltralytics() {
-    // Giá trị tham chiếu từ multi_gmc của Ultralytics 8.4.157, quay 10 độ và dịch (5, 7).
+    // Reference values from Ultralytics 8.4.157 multi_gmc, 10-degree rotation and (5, 7) shift.
     mot::KalmanFilterXYWH kalman;
     auto state = kalman.initiate({40.0, 30.0, 20.0, 10.0});
     for (int index = 4; index < 8; ++index) {
@@ -223,7 +215,6 @@ void testWarpMatchesUltralytics() {
         }
     }
 
-    // Phép quay lớn phải giữ kết quả R*w/h thay vì ép dương hoặc hoàn tác warp.
     mot::Track track({{30.0, 25.0, 50.0, 35.0}, 0.9, 0});
     track.activate(kalman, 1, 1);
     const cv::Mat large_rotation = (cv::Mat_<double>(2, 3) << std::cos(2.2), -std::sin(2.2), 5.0,
@@ -254,7 +245,7 @@ void testWarpMatchesUltralytics() {
     expectNear(track.mean().at<double>(2, 0), -19.854986383302816, 1e-12,
                "predict must not repair signed GMC width");
     track.update(mot::Track({{39.5, 29.5, 40.5, 30.5}, 0.8, 2}), 2);
-    // Golden từ BOTrack.predict/update, không sửa kích thước trước hoặc sau Kalman.
+    // Golden values from BOTrack.predict/update, with no size correction before or after Kalman.
     const std::array<double, 8> updated_mean{
         18.502678114060394, 27.062568670904014, -3.20462825092617, 1.0464663753364114,
         11.179857593517506, 0.6854816591811217, 3.49599153973328, -2.5820180205521126};
@@ -270,7 +261,6 @@ void testWarpMatchesUltralytics() {
 }
 
 void testSignedGmcLifecycle() {
-    // Bbox đảo góc không được dùng hộp cũ để cứu ID; kết quả theo Ultralytics.
     mot::BoTSORTConfig config;
     config.gmc_method = "none";
     config.track_buffer = 1;
@@ -315,7 +305,6 @@ void testRemovedHistoryLimit() {
 }
 
 void testDuplicateRemoval() {
-    // Hai quỹ đạo trùng nhau phải giữ quỹ đạo tồn tại lâu hơn.
     mot::KalmanFilterXYWH kalman;
     auto active = std::make_shared<mot::Track>(detection());
     auto stale = std::make_shared<mot::Track>(detection());
@@ -328,10 +317,9 @@ void testDuplicateRemoval() {
            "duplicate removal should keep the longer-lived track");
 }
 
-}  // namespace
+}
 
 int main() {
-    // Chạy lần lượt các ca kiểm thử lõi và trả mã lỗi khi có ngoại lệ.
     try {
         testTypesGeometryAssignment();
         testIouMatchesUltralytics();

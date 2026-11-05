@@ -6,7 +6,6 @@
 namespace mot {
 
 void BoTSORTConfig::validate() const {
-    // Kiểm tra từng ngưỡng, quan hệ giữa các ngưỡng và tùy chọn GMC.
     const auto probability = [](double value, const char* name) {
         if (!std::isfinite(value) || value < 0.0 || value > 1.0) {
             throw std::invalid_argument(std::string(name) + " must be finite and in [0, 1]");
@@ -33,4 +32,4 @@ void BoTSORTConfig::validate() const {
     }
 }
 
-}  // namespace mot
+}

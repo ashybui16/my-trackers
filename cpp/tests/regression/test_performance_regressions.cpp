@@ -1,5 +1,5 @@
-#include "tensorrt/preprocess.hpp"
-#include "tensorrt/postprocess.hpp"
+#include "detection/yolo/preprocess.hpp"
+#include "detection/yolo/postprocess.hpp"
 #include "tracking/common/assignment.hpp"
 #include "tracking/common/association.hpp"
 #include "tracking/common/geometry.hpp"
@@ -181,7 +181,7 @@ void gmcOwnershipTests() {
             expect(identity.at<double>(0, 2) == 0 && identity.at<double>(1, 2) == 0, "GMC reset first warp");
         }
 }
-} // namespace
+}
 int main() {
     try {
         assignmentTests();
