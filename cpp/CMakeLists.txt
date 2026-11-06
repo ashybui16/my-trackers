@@ -24,7 +24,7 @@ option(MOT_WITH_ONNXRUNTIME "Build the ONNX Runtime (CPU) detector" ON)
 option(MOT_BUILD_APPS "Build the mot_video CLI" ${MOT_IS_TOP_LEVEL})
 option(MOT_BUILD_TESTS "Build CPU tests" ${MOT_IS_TOP_LEVEL})
 option(MOT_BUILD_GPU_TESTS "Build tests that need a TensorRT engine and an NVIDIA GPU" OFF)
-option(MOT_BUILD_BENCHMARKS "Build CPU/video performance benchmarks" OFF)
+option(MOT_BUILD_BENCHMARKS "Build the VisDrone dataset benchmark (mot_benchmark)" OFF)
 option(MOT_INSTALL "Generate install and package-config rules" ${MOT_IS_TOP_LEVEL})
 
 if(NOT CMAKE_CXX_STANDARD)

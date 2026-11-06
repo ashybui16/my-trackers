@@ -1,7 +1,7 @@
 # Paths are relative to this configuration file. CLI flags override these values.
 detector:
   # .engine → TensorRT, .onnx → ONNX Runtime (CPU).
-  model_path: "26leaf1.engine"
+  model_path: "26c1.engine"
   # Index = class_id. class_count is inferred from this list (set it to override).
   class_names:
     - pedestrian       # 0

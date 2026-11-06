@@ -1,272 +1,290 @@
+// VisDrone-MOT dataset speed benchmark: times decode/detect/track per frame.
 #include "mot/pipeline/config.hpp"
-#include "mot/tracking/factory.hpp"
-#include "mot/visualization/annotator.hpp"
-#ifdef MOT_BENCHMARK_GPU
+#if defined(MOT_HAS_TENSORRT)
 #include "mot/tensorrt/detector.hpp"
-#else
-#include "detection/yolo/postprocess.hpp"
-#include "tracking/common/assignment.hpp"
-#include "tracking/common/gmc.hpp"
 #endif
-#include <opencv2/imgproc.hpp>
-#include <opencv2/videoio.hpp>
+#if defined(MOT_HAS_ONNXRUNTIME)
+#include "mot/onnxruntime/detector.hpp"
+#endif
+#include "mot/tracking/factory.hpp"
+
+#include <opencv2/imgcodecs.hpp>
+
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <numeric>
+#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace {
+namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
+
 struct Options {
-    int warmup = 100, frames = 1000, repeats = 3;
-    std::string config = "weights/config.yaml", video, output = "runs/benchmarks", only;
+    int warmup = 20, repeats = 1, max_frames = 0;
+    std::string config = "weights/config.yaml", model, dataset = "data/VisDroneMOT/test",
+                output = "runs/benchmarks/visdrone_test";
+    std::vector<std::string> sequences;
 };
+
+const char *kUsage =
+    "Usage: mot_benchmark [--config YAML] [--model PATH] [--dataset DIR] [--output-dir DIR]\n"
+    "                     [--sequences a,b,...] [--warmup 20] [--repeats 1] [--max-frames N]\n"
+    "  --dataset     VisDrone split dir with sequences/<seq>/0000001.jpg (default data/VisDroneMOT/test)\n"
+    "  --model       overrides YAML model_path (.engine/.trt/.plan -> TensorRT, .onnx -> ONNX Runtime)\n"
+    "  --warmup      untimed detector passes on the first frame before each repeat\n"
+    "  --max-frames  per-sequence frame cap (0 = all)\n"
+    "Writes the timing CSV to stdout and <output-dir>/timing.csv.\n";
+
+int parseInt(const std::string &value) {
+    std::size_t end = 0;
+    const int number = std::stoi(value, &end);
+    if (end != value.size())
+        throw std::invalid_argument("invalid integer: " + value);
+    return number;
+}
+
 Options parse(int argc, char **argv) {
     Options o;
     for (int i = 1; i < argc; ++i) {
         const std::string key = argv[i];
-        if (key == "--help") {
-            std::cout << "--config YAML --warmup 100 --frames 1000 --repeats 3"
-                         " [--only CPU_WORKLOAD] [--video VIDEO --output-dir DIR]\n";
+        if (key == "--help" || key == "-h") {
+            std::cout << kUsage;
             std::exit(0);
         }
         if (++i == argc)
             throw std::invalid_argument("missing value for " + key);
         const std::string value = argv[i];
-        if (key == "--only")
-            o.only = value;
-        else if (key == "--config")
+        if (key == "--config")
             o.config = value;
-        else if (key == "--video")
-            o.video = value;
+        else if (key == "--model" || key == "--engine")
+            o.model = value;
+        else if (key == "--dataset")
+            o.dataset = value;
         else if (key == "--output-dir")
             o.output = value;
-        else if (key == "--warmup" || key == "--frames" || key == "--repeats") {
-            std::size_t end = 0;
-            const int number = std::stoi(value, &end);
-            if (end != value.size())
-                throw std::invalid_argument("invalid integer: " + value);
-            if (key == "--warmup")
-                o.warmup = number;
-            else if (key == "--frames")
-                o.frames = number;
-            else
-                o.repeats = number;
-        } else
-            throw std::invalid_argument("unknown option: " + key);
+        else if (key == "--sequences") {
+            std::stringstream stream(value);
+            for (std::string name; std::getline(stream, name, ',');)
+                if (!name.empty())
+                    o.sequences.push_back(name);
+        } else if (key == "--warmup")
+            o.warmup = parseInt(value);
+        else if (key == "--repeats")
+            o.repeats = parseInt(value);
+        else if (key == "--max-frames")
+            o.max_frames = parseInt(value);
+        else
+            throw std::invalid_argument("unknown option: " + key + "\n" + kUsage);
     }
-    if (o.warmup < 0 || o.frames < 1 || o.repeats < 1)
-        throw std::invalid_argument("warmup >= 0, frames/repeats > 0 required");
+    if (o.warmup < 0 || o.repeats < 1 || o.max_frames < 0)
+        throw std::invalid_argument("warmup >= 0, repeats > 0, max-frames >= 0 required");
     return o;
 }
+
+std::unique_ptr<mot::IDetector> makeDetector(const mot::PipelineConfig &config, std::string &backend) {
+    std::string extension = fs::path(config.model_path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (extension == ".onnx") {
+#if defined(MOT_HAS_ONNXRUNTIME)
+        backend = "onnxruntime (CPU)";
+        return std::make_unique<mot::OnnxRuntimeDetector>(config.model_path, config.detector,
+                                                          config.class_names);
+#else
+        throw std::runtime_error("ONNX model given but mot_benchmark was built without ONNX Runtime: " +
+                                 config.model_path);
+#endif
+    }
+    if (extension == ".engine" || extension == ".trt" || extension == ".plan") {
+#if defined(MOT_HAS_TENSORRT)
+        backend = "tensorrt";
+        return std::make_unique<mot::TensorRTDetector>(config.model_path, config.detector, config.class_names);
+#else
+        throw std::runtime_error("TensorRT engine given but mot_benchmark was built without TensorRT: " +
+                                 config.model_path);
+#endif
+    }
+    throw std::runtime_error("cannot pick a detector backend for '" + config.model_path +
+                             "' (expected .engine/.trt/.plan or .onnx)");
+}
+
+struct Sequence {
+    std::string name;
+    std::vector<fs::path> frames;
+};
+
+std::vector<fs::path> sequenceFrames(const fs::path &dir) {
+    std::vector<std::pair<long, fs::path>> numbered;
+    for (const auto &entry : fs::directory_iterator(dir)) {
+        if (!entry.is_regular_file())
+            continue;
+        std::string ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext != ".jpg" && ext != ".jpeg" && ext != ".png")
+            continue;
+        const std::string stem = entry.path().stem().string();
+        if (stem.empty() || !std::all_of(stem.begin(), stem.end(), [](unsigned char c) { return std::isdigit(c); }))
+            throw std::runtime_error("non-numeric frame name in " + dir.string() + ": " + stem);
+        numbered.emplace_back(std::stol(stem), entry.path());
+    }
+    if (numbered.empty())
+        throw std::runtime_error("no image frames in " + dir.string());
+    std::sort(numbered.begin(), numbered.end());
+    std::vector<fs::path> frames;
+    frames.reserve(numbered.size());
+    for (std::size_t i = 0; i < numbered.size(); ++i) {
+        if (numbered[i].first != static_cast<long>(i + 1))
+            throw std::runtime_error("frames must be numbered continuously from 1 in " + dir.string());
+        frames.push_back(numbered[i].second);
+    }
+    return frames;
+}
+
+std::vector<Sequence> discover(const Options &o) {
+    const fs::path root = fs::path(o.dataset) / "sequences";
+    if (!fs::is_directory(root))
+        throw std::runtime_error("missing sequences directory: " + root.string());
+    std::vector<std::string> names = o.sequences;
+    if (names.empty()) {
+        for (const auto &entry : fs::directory_iterator(root))
+            if (entry.is_directory())
+                names.push_back(entry.path().filename().string());
+        std::sort(names.begin(), names.end());
+    }
+    if (names.empty())
+        throw std::runtime_error("no sequences found in " + root.string());
+    std::vector<Sequence> sequences;
+    for (const auto &name : names) {
+        const fs::path dir = root / name;
+        if (!fs::is_directory(dir))
+            throw std::runtime_error("sequence not found: " + dir.string());
+        auto frames = sequenceFrames(dir);
+        if (o.max_frames > 0 && frames.size() > static_cast<std::size_t>(o.max_frames))
+            frames.resize(o.max_frames);
+        sequences.push_back({name, std::move(frames)});
+    }
+    return sequences;
+}
+
 double elapsed(Clock::time_point start) {
     return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
 }
-void report(const std::string &name, int repeat, std::vector<double> times, std::size_t checksum = 0) {
+
+struct StageTimes {
+    std::vector<double> decode, detector, tracker, end_to_end;
+    void append(const StageTimes &other) {
+        auto add = [](std::vector<double> &to, const std::vector<double> &from) {
+            to.insert(to.end(), from.begin(), from.end());
+        };
+        add(decode, other.decode);
+        add(detector, other.detector);
+        add(tracker, other.tracker);
+        add(end_to_end, other.end_to_end);
+    }
+};
+
+void reportStage(std::ostream &out, const std::string &scope, int repeat, const std::string &stage,
+                 std::vector<double> times) {
     if (times.empty())
-        throw std::runtime_error("no measured samples for " + name);
+        throw std::runtime_error("no measured samples for " + scope + "/" + stage);
     const double total = std::accumulate(times.begin(), times.end(), 0.0);
     std::sort(times.begin(), times.end());
     const std::size_t n = times.size();
     const double median = n % 2 ? times[n / 2] : (times[n / 2 - 1] + times[n / 2]) / 2.0;
-    const std::size_t p95 = static_cast<std::size_t>(std::ceil(0.95 * n)) - 1;
-    std::cout << name << ',' << repeat << ',' << n << ',' << total / n << ',' << median << ',' << times[p95]
-              << ',' << 1000.0 * n / total << ',' << checksum << '\n';
+    const std::size_t p95 = static_cast<std::size_t>(std::ceil(0.95 * static_cast<double>(n))) - 1;
+    out << scope << ',' << repeat << ',' << stage << ',' << n << ',' << total / n << ',' << median << ','
+        << times[p95] << ',' << 1000.0 * n / total << '\n';
 }
-#ifndef MOT_BENCHMARK_GPU
-template <class F> void measure(const std::string &name, int repeat, const Options &o, F &&f) {
-    if (!o.only.empty() && name != o.only)
-        return;
-    std::vector<double> times;
-    times.reserve(o.frames);
-    std::size_t checksum = 0;
-    for (int i = 0; i < o.warmup + o.frames; ++i) {
+
+void reportAll(std::ostream &out, const std::string &scope, int repeat, const StageTimes &t) {
+    reportStage(out, scope, repeat, "decode", t.decode);
+    reportStage(out, scope, repeat, "detector", t.detector);
+    reportStage(out, scope, repeat, "tracker", t.tracker);
+    reportStage(out, scope, repeat, "end_to_end", t.end_to_end);
+}
+
+cv::Mat readFrame(const fs::path &path) {
+    cv::Mat frame = cv::imread(path.string(), cv::IMREAD_COLOR);
+    if (frame.empty())
+        throw std::runtime_error("cannot read image: " + path.string());
+    return frame;
+}
+
+StageTimes runSequence(const Sequence &sequence, const mot::PipelineConfig &config, mot::IDetector &detector) {
+    const auto tracker = mot::createTracker(config.tracker);
+    StageTimes t;
+    for (std::size_t index = 0; index < sequence.frames.size(); ++index) {
         const auto start = Clock::now();
-        const auto value = f(i);
-        const double ms = elapsed(start);
-        if (i >= o.warmup) {
-            times.push_back(ms);
-            checksum += value;
-        }
+        const cv::Mat frame = readFrame(sequence.frames[index]);
+        const double decode = elapsed(start);
+        auto tick = Clock::now();
+        const auto detections = detector.detect(frame);
+        const double detect = elapsed(tick);
+        tick = Clock::now();
+        tracker->update(detections, frame);
+        const double track = elapsed(tick);
+        t.decode.push_back(decode);
+        t.detector.push_back(detect);
+        t.tracker.push_back(track);
+        t.end_to_end.push_back(elapsed(start));
     }
-    report(name, repeat, std::move(times), checksum);
+    return t;
 }
+
 void run(const Options &o, const mot::PipelineConfig &config) {
-    // Component workloads use BoT-SORT parameters; other trackers fall back to defaults.
-    const auto *selected = std::get_if<mot::BoTSORTConfig>(&config.tracker);
-    const mot::BoTSORTConfig botsort = selected ? *selected : mot::BoTSORTConfig{};
+    const auto sequences = discover(o);
+    std::size_t total_frames = 0;
+    for (const auto &s : sequences)
+        total_frames += s.frames.size();
+    const fs::path output = o.output;
+    fs::create_directories(output);
+    std::ofstream timing(output / "timing.csv");
+    if (!timing)
+        throw std::runtime_error("cannot write " + (output / "timing.csv").string());
+    for (auto *stream : {static_cast<std::ostream *>(&std::cout), static_cast<std::ostream *>(&timing)})
+        *stream << std::fixed << std::setprecision(6)
+                << "scope,repeat,stage,samples,mean_ms,median_ms,p95_ms,fps\n";
+
     for (int rep = 1; rep <= o.repeats; ++rep) {
-        for (auto shape : {std::pair<int, int>{16, 16}, {64, 96}, {128, 128}}) {
-            std::vector<std::vector<double>> costs(shape.first, std::vector<double>(shape.second));
-            for (int r = 0; r < shape.first; ++r)
-                for (int c = 0; c < shape.second; ++c)
-                    costs[r][c] = r == c ? 0.1 : 0.5 + ((r * 17 + c * 31) % 50) / 100.0;
-            measure(
-                "assignment_" + std::to_string(shape.first) + "x" + std::to_string(shape.second), rep, o,
-                [&](int) {
-                    return mot::linearAssignment(costs, botsort.match_thresh).matches.size();
-                });
+        std::string backend;
+        const auto detector = makeDetector(config, backend);
+        std::cerr << "repeat " << rep << ": backend=" << backend << ", model=" << config.model_path
+                  << ", sequences=" << sequences.size() << ", frames=" << total_frames << '\n';
+        const cv::Mat first = readFrame(sequences.front().frames.front());
+        for (int i = 0; i < o.warmup; ++i)
+            detector->detect(first);
+
+        StageTimes all;
+        for (const auto &sequence : sequences) {
+            const auto times = runSequence(sequence, config, *detector);
+            for (auto *stream : {static_cast<std::ostream *>(&std::cout), static_cast<std::ostream *>(&timing)})
+                reportAll(*stream, sequence.name, rep, times);
+            all.append(times);
         }
-        for (int n : {128, 2048, 34000}) {
-            const int classes = config.detector.class_count;
-            std::vector<float> raw(static_cast<std::size_t>(4 + classes) * n, 0.0F);
-            for (int i = 0; i < n; ++i) {
-                raw[i] = 10.0F + (i % 100) * 6;
-                raw[n + i] = 10.0F + ((i / 100) % 100) * 6;
-                raw[2 * n + i] = 20;
-                raw[3 * n + i] = 20;
-                raw[static_cast<std::size_t>(4 + i % classes) * n + i] = 0.1F + 0.8F * (i % 97) / 96.0F;
-            }
-            mot::detail::OutputOptions output;
-            output.class_count = classes;
-            output.conf_threshold = config.detector.conf_threshold;
-            output.iou_threshold = config.detector.iou_threshold;
-            output.max_det = config.detector.max_det;
-            output.transform = {1, 0, 0, 1920, 1080};
-            mot::detail::OutputWorkspace workspace;
-            measure("nms_" + std::to_string(n), rep, o, [&](int) {
-                return mot::detail::processOutput(raw.data(), n, output, workspace).size();
-            });
-        }
-        for (int n : {30001, 34000, 100000}) {
-            const int classes = config.detector.class_count;
-            std::vector<float> raw(static_cast<std::size_t>(4 + classes) * n, 0.0F);
-            for (int i = 0; i < n; ++i) {
-                raw[i] = 50;
-                raw[n + i] = 50;
-                raw[2 * n + i] = 20;
-                raw[3 * n + i] = 20;
-                raw[4 * n + i] = 0.9F;
-            }
-            mot::detail::OutputOptions output;
-            output.class_count = classes;
-            output.conf_threshold = config.detector.conf_threshold;
-            output.iou_threshold = config.detector.iou_threshold;
-            output.max_det = config.detector.max_det;
-            output.transform = {1, 0, 0, 100, 100};
-            mot::detail::OutputWorkspace workspace;
-            measure("nms_overlap_" + std::to_string(n), rep, o, [&](int) {
-                return mot::detail::processOutput(raw.data(), n, output, workspace).size();
-            });
-        }
-        for (int n : {16, 64, 128}) {
-            auto tracker_config = config.tracker;
-            if (auto *bot = std::get_if<mot::BoTSORTConfig>(&tracker_config))
-                bot->gmc_method = "none"; // Isolate association/Kalman; GMC measured separately.
-            const auto tracker = mot::createTracker(tracker_config);
-            measure("tracker_no_gmc_" + std::to_string(n), rep, o, [&](int frame) {
-                std::vector<mot::Detection> detections;
-                detections.reserve(n);
-                for (int i = 0; i < n; ++i)
-                    if ((frame + i) % 11 >= 3) {
-                        const double x = i * 16.0 + 0.1 * (frame % 20);
-                        detections.emplace_back(mot::BBox{x, 0, x + 12, 20}, 0.9,
-                                                i % config.detector.class_count);
-                    }
-                const auto tracks = tracker->update(detections);
-                std::size_t sum = tracks.size();
-                for (const auto &track : tracks)
-                    sum += track.track_id;
-                return sum;
-            });
-        }
-        mot::GMC gmc(botsort.gmc_method, botsort.gmc_downscale);
-        cv::Mat image(360, 640, CV_8UC3);
-        cv::RNG rng(42);
-        rng.fill(image, cv::RNG::UNIFORM, 0, 256);
-        measure("gmc_640x360", rep, o, [&](int) {
-            const auto warp = gmc.apply(image);
-            return static_cast<std::size_t>(std::llround(warp.at<double>(0, 0) * 1000000));
-        });
+        for (auto *stream : {static_cast<std::ostream *>(&std::cout), static_cast<std::ostream *>(&timing)})
+            reportAll(*stream, "ALL", rep, all);
     }
 }
-#else
-void run(const Options &o, const mot::PipelineConfig &config) {
-    if (!o.only.empty())
-        throw std::invalid_argument("--only applies to CPU workloads");
-    if (o.video.empty())
-        throw std::invalid_argument("--video is required");
-    std::filesystem::create_directories(o.output);
-    for (int rep = 1; rep <= o.repeats; ++rep) {
-        mot::TensorRTDetector detector(config.model_path, config.detector, config.class_names);
-        const auto tracker = mot::createTracker(config.tracker);
-        mot::Annotator annotator(config.class_names);
-        cv::VideoCapture capture(o.video);
-        if (!capture.isOpened())
-            throw std::runtime_error("cannot open video");
-        double fps = capture.get(cv::CAP_PROP_FPS);
-        if (!std::isfinite(fps) || fps <= 0)
-            fps = 30;
-        cv::VideoWriter writer;
-        std::vector<double> decode, detect, track, annotate, write, pipeline, total;
-        int count = 0;
-        for (; count < o.warmup + o.frames; ++count) {
-            cv::Mat frame;
-            const auto start = Clock::now();
-            if (!capture.read(frame))
-                break;
-            const double a = elapsed(start);
-            auto tick = Clock::now();
-            const auto detections = detector.detect(frame);
-            const double b = elapsed(tick);
-            tick = Clock::now();
-            const auto tracks = tracker->update(detections, frame);
-            const double c = elapsed(tick);
-            tick = Clock::now();
-            annotator.draw(frame, tracks);
-            const double d = elapsed(tick);
-            if (!writer.isOpened()) {
-                const auto path =
-                    std::filesystem::path(o.output) / ("benchmark_" + std::to_string(rep) + ".mp4");
-                writer.open(path.string(), cv::VideoWriter::fourcc('m', 'p', '4', 'v'), fps, frame.size());
-                if (!writer.isOpened())
-                    throw std::runtime_error("cannot open video writer");
-            }
-            tick = Clock::now();
-            writer.write(frame);
-            const double e = elapsed(tick);
-            const double full = elapsed(start);
-            if (count >= o.warmup) {
-                decode.push_back(a);
-                detect.push_back(b);
-                track.push_back(c);
-                annotate.push_back(d);
-                write.push_back(e);
-                pipeline.push_back(b + c);
-                total.push_back(full);
-            }
-        }
-        const auto finalize = Clock::now();
-        writer.release();
-        std::cerr << "repeat " << rep << ": processed=" << count << ", measured=" << total.size()
-                  << ", writer_finalize_ms=" << elapsed(finalize) << '\n';
-        if (total.size() < static_cast<std::size_t>(o.frames))
-            std::cerr << "insufficient video frames for requested samples\n";
-        report("decode", rep, decode);
-        report("detector", rep, detect);
-        report("tracker", rep, track);
-        report("annotation", rep, annotate);
-        report("write", rep, write);
-        report("detection_tracking", rep, pipeline);
-        report("end_to_end", rep, total);
-    }
-}
-#endif
-}
+} // namespace
+
 int main(int argc, char **argv) {
     try {
         const auto o = parse(argc, argv);
-        const auto config = mot::PipelineConfig::fromFile(o.config);
-        std::cout << std::fixed << std::setprecision(6)
-                  << "workload,repeat,samples,mean_ms,median_ms,p95_ms,fps,checksum\n";
+        auto config = mot::PipelineConfig::fromFile(o.config);
+        if (!o.model.empty())
+            config.model_path = o.model;
         run(o, config);
         return 0;
     } catch (const std::exception &e) {

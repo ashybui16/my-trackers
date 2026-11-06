@@ -243,33 +243,29 @@ ordering, thresholds, 30000-candidate cap and clipping order. No runtime configu
 Scratch buffers are instance-owned. GMC uses separate current/history images; detector transfers use pinned
 host memory with one startup warning and pageable fallback if pinned allocation runs out of memory.
 
-Build optional benchmarks (off by default):
+The optional `mot_benchmark` target (off by default; needs TensorRT or ONNX Runtime) runs the full
+detector + tracker on a VisDrone-MOT split, e.g. `data/VisDroneMOT/test`, and measures speed:
 
 ```bash
 cmake -S . -B /tmp/my-trackers-perf -DCMAKE_BUILD_TYPE=Release \
-  -DMOT_BUILD_BENCHMARKS=ON -DMOT_BUILD_GPU_TESTS=ON \
-  -DCUDAToolkit_ROOT=/usr/local/cuda
-cmake --build /tmp/my-trackers-perf -j4
-/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark_cpu --config weights/config.yaml > cpu.csv
-/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark_video --config weights/config.yaml \
-  --video data/input.ts --output-dir /tmp/mot-benchmark-video > video.csv
+  -DMOT_BUILD_BENCHMARKS=ON -DCUDAToolkit_ROOT=/usr/local/cuda
+cmake --build /tmp/my-trackers-perf -j4 --target mot_benchmark
+/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark --config weights/config.yaml \
+  --dataset data/VisDroneMOT/test \
+  --output-dir runs/benchmarks/visdrone_test
 ```
 
-The CPU target also builds with `-DMOT_WITH_TENSORRT=OFF`. Both commands default to 100 warm-up iterations,
-1000 measured samples and 3 independent repeats; override with `--warmup`, `--frames`, and `--repeats`.
-The CPU target measures rectangular/square assignment, raw NMS (including above-cap overlap cases), trackers at three object counts, and GMC.
-Use `--only WORKLOAD`, e.g. `--only gmc_640x360` or `--only nms_overlap_34000`, for targeted CPU reruns.
-Its tracker workloads intentionally disable GMC to isolate association/Kalman; the separate GMC workload
-uses the configured method/downscale. Synthetic detections are not a tracking-accuracy benchmark.
+The backend is chosen from the model extension (`.engine/.trt/.plan` → TensorRT, `.onnx` → ONNX Runtime);
+`--model` overrides the YAML `model_path`. Sequences under `<dataset>/sequences/` are processed in name order
+(`--sequences a,b` selects a subset, `--max-frames N` caps each one for quick runs). The detector is built once
+per repeat and warmed up with `--warmup` (default 20) untimed passes; each sequence gets a fresh tracker, so
+track IDs restart at 1. Per frame it times `decode` (`cv::imread`), `detector` (including
+transfers/pre/postprocessing), `tracker` (including GMC), and `end_to_end`.
 
-The video target processes the first warm-up + measured frames from the start on each repeat with new detector,
-tracker and GMC state. It measures decode, detector (including transfers/pre/postprocessing), tracker,
-annotation, video writes, detection+tracking and combined per-frame latency. It annotates in place in both
-baseline and optimized measurements and writes `benchmark_1.mp4` etc. in the output directory (overwritten on
-rerun); it does not write MOT prediction text. Writer finalization time is reported separately on stderr.
-Each CSV row includes sample count, mean, median, nearest-rank p95, throughput and a CPU workload checksum.
-Short video inputs produce an explicit insufficient-samples warning; zero measured frames fail.
+Output (`timing.csv` is overwritten on rerun):
 
-Run before/after benchmarks sequentially, with the same Release toolchain, hardware, engine, YAML and video.
-Avoid concurrent builds or benchmarks when collecting comparison numbers. Do not interpret input video FPS
-metadata as processing throughput, or the detection+tracking stage as complete application throughput.
+- stdout and `<output-dir>/timing.csv`: `scope,repeat,stage,samples,mean_ms,median_ms,p95_ms,fps`, one row per
+  stage for each sequence plus `scope=ALL` over every frame (nearest-rank p95).
+
+It does not write predictions or measure accuracy. Run timing comparisons sequentially, with
+the same Release toolchain, hardware, model, YAML and dataset, and no concurrent builds or benchmarks.
