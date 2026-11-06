@@ -40,21 +40,36 @@ def _as_class_id(value: Integral) -> int:
     return int(value)
 
 
+def _as_class_scores(value: Iterable[Real] | None) -> tuple[float, ...] | None:
+    if value is None:
+        return None
+    try:
+        scores = tuple(float(item) for item in value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("class_scores must contain numeric values") from exc
+    if not all(math.isfinite(item) and 0.0 <= item <= 1.0 for item in scores):
+        raise ValueError("class_scores must be finite and in [0, 1]")
+    return scores or None
+
+
 @dataclass(frozen=True, slots=True)
 class Detection:
     """One normalized axis-aligned detector output.
 
     ``bbox_xyxy`` is always ``(x1, y1, x2, y2)`` in image coordinates.
+    ``class_scores`` optionally holds per-class detector scores (index = class id).
     """
 
     bbox_xyxy: tuple[float, float, float, float]
     score: float
     class_id: int
+    class_scores: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bbox_xyxy", _as_box(self.bbox_xyxy, name="bbox_xyxy"))
         object.__setattr__(self, "score", _as_score(self.score))
         object.__setattr__(self, "class_id", _as_class_id(self.class_id))
+        object.__setattr__(self, "class_scores", _as_class_scores(self.class_scores))
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 
 namespace mot {
 
@@ -13,9 +14,12 @@ struct Detection {
     BBox bbox_xyxy{};
     double score{0.0};
     int class_id{0};
+    // Optional per-class scores (index = class_id); empty means only class_id/score are known.
+    std::vector<float> class_scores;
 
     Detection() = default;
     Detection(const BBox& bbox, double confidence, int class_value);
+    Detection(const BBox& bbox, double confidence, int class_value, std::vector<float> scores);
 };
 
 // Tracking result; the finite bbox may have inverted corners after GMC, as in Ultralytics.

@@ -85,7 +85,7 @@ std::filesystem::path resolve(const std::filesystem::path& directory, const std:
 void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTConfig& config) {
     checkKeys(node, {"track_high_thresh", "track_low_thresh", "new_track_thresh",
                      "track_buffer", "match_thresh", "fuse_score", "gmc_method",
-                     "gmc_downscale"}, section);
+                     "gmc_downscale", "class_ema_alpha"}, section);
     readValue(node, "track_high_thresh", config.track_high_thresh);
     readValue(node, "track_low_thresh", config.track_low_thresh);
     readValue(node, "new_track_thresh", config.new_track_thresh);
@@ -94,6 +94,7 @@ void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTCo
     readValue(node, "fuse_score", config.fuse_score);
     readValue(node, "gmc_method", config.gmc_method);
     readValue(node, "gmc_downscale", config.gmc_downscale);
+    readValue(node, "class_ema_alpha", config.class_ema_alpha);
 }
 
 TrackerConfig readTrackerConfig(const cv::FileNode& node) {

@@ -30,6 +30,9 @@ void BoTSORTConfig::validate() const {
     if (gmc_downscale < 1) {
         throw std::invalid_argument("gmc_downscale must be at least 1");
     }
+    if (!std::isfinite(class_ema_alpha) || class_ema_alpha < 0.0 || class_ema_alpha >= 1.0) {
+        throw std::invalid_argument("class_ema_alpha must be finite and in [0, 1)");
+    }
 }
 
 }

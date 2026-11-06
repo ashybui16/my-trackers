@@ -117,7 +117,7 @@ Nếu dùng cấu hình mặc định `gmc_method="sparseOptFlow"`, cần truy�
 tracks = tracker.update(detections, frame_bgr)
 ```
 
-Có thể chọn tracker theo tên hoặc từ section `tracker` của `weights/config.yaml` (cùng quy tắc với C++):
+Có thể chọn tracker theo tên hoặc từ section `tracker` của `configs/config.yaml` (cùng quy tắc với C++):
 
 ```python
 from mot_tracker import default_tracker_config, tracker_config_from_mapping
@@ -150,6 +150,7 @@ Mỗi video hoặc camera stream nên dùng một instance tracker riêng. Gọi
 | `fuse_score` | `True` | Kết hợp confidence vào chi phí association |
 | `gmc_method` | `sparseOptFlow` | `sparseOptFlow` hoặc `none` |
 | `gmc_downscale` | `2` | Hệ số giảm kích thước ảnh khi chạy GMC |
+| `class_ema_alpha` | `0.0` | Trọng số EMA cho vector class của track (`0` = theo class của detection mới nhất); `configs/config.yaml` dùng `0.9` |
 
 ## Chạy tracking trên video
 

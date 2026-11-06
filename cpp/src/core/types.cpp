@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace mot {
 
@@ -35,6 +36,14 @@ Detection::Detection(const BBox& bbox, double confidence, int class_value)
     : bbox_xyxy(bbox), score(confidence), class_id(class_value) {
     validateBBox(bbox_xyxy);
     validateScore(score);
+}
+
+Detection::Detection(const BBox& bbox, double confidence, int class_value, std::vector<float> scores)
+    : Detection(bbox, confidence, class_value) {
+    for (float value : scores) {
+        validateScore(value, "class_scores");
+    }
+    class_scores = std::move(scores);
 }
 
 TrackOutput::TrackOutput(int id, const BBox& bbox, double confidence, int class_value)

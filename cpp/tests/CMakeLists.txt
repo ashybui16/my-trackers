@@ -1,4 +1,5 @@
 set(MOT_REPO_WEIGHTS "${MOT_SOURCE_DIR}/../weights")
+set(MOT_REPO_CONFIGS "${MOT_SOURCE_DIR}/../configs")
 
 mot_add_test(botsort
     SOURCES tracking/test_botsort.cpp
@@ -15,12 +16,12 @@ mot_add_test(pipeline
 mot_add_test(config
     SOURCES pipeline/test_config.cpp
     LIBS mot_pipeline
-    ARGS "${MOT_REPO_WEIGHTS}/config.yaml"
+    ARGS "${MOT_REPO_CONFIGS}/config.yaml"
     LABELS "config;cpu")
 mot_add_test(annotator
     SOURCES visualization/test_annotator.cpp
     LIBS mot_visualization mot_pipeline
-    ARGS "${MOT_REPO_WEIGHTS}/config.yaml"
+    ARGS "${MOT_REPO_CONFIGS}/config.yaml"
     LABELS "visualization;cpu")
 mot_add_test(postprocess
     SOURCES detection/test_postprocess.cpp

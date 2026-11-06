@@ -122,6 +122,24 @@ void testStrictConfidenceThreshold() {
     expect(detections.front().class_id == 2, "class with the highest score must be selected");
 }
 
+void testClassScoresAreKept() {
+    Tensor tensor = makeTensor(3);
+    setCandidate(tensor, 0, 10.0F, 10.0F, 4.0F, 4.0F, 0, 0.05F);
+    setCandidate(tensor, 1, 50.0F, 10.0F, 4.0F, 4.0F, 3, 0.6F);
+    setValue(tensor, 1, 4 + 4, 0.4F);
+    setValue(tensor, 1, 4 + 5, 0.1F);
+    const auto detections = run(tensor, options());
+    expect(detections.size() == 2, "class score detection count");
+    const auto& detection = detections.front();
+    expect(detection.class_id == 3, "class score argmax");
+    expect(detection.class_scores.size() == static_cast<std::size_t>(kClassCount), "class score vector size");
+    for (int class_index = 0; class_index < kClassCount; ++class_index) {
+        const float expected = class_index == 3 ? 0.6F : class_index == 4 ? 0.4F : class_index == 5 ? 0.1F : 0.0F;
+        expectNear(detection.class_scores[static_cast<std::size_t>(class_index)], expected, 1e-6, "class score value");
+    }
+    expectNear(detections.back().class_scores[0], 0.05F, 1e-6, "second detection class score");
+}
+
 void testStrictIouThresholdAndClassAwareNms() {
     Tensor tensor = makeTensor(2);
     setCandidate(tensor, 0, 1.0F, 1.0F, 2.0F, 2.0F, 0, 0.9F);
@@ -224,6 +242,7 @@ int main() {
         testStableScoreTiesAndMaxDet();
         testThirtyThousandCandidateLimit();
         testClipAfterNmsAndNoBackfill();
+        testClassScoresAreKept();
         std::cout << "All detector postprocess tests passed\n";
         return 0;
     } catch (const std::exception& exception) {

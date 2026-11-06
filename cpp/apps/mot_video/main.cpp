@@ -53,7 +53,7 @@ std::string backends() {
 [[noreturn]] void usageError(const std::string& message) {
     throw std::invalid_argument(message +
                                 "\nUsage: mot_video VIDEO [--config YAML] [options]\n"
-                                "  --config YAML                 default: weights/config.yaml (or MOT_CONFIG_PATH)\n"
+                                "  --config YAML                 default: configs/config.yaml (or MOT_CONFIG_PATH)\n"
                                 "  --model MODEL                 override YAML model_path (.engine or .onnx)\n"
                                 "  --engine ENGINE               alias of --model\n"
                                 "  --tracker TYPE                override YAML tracker.type\n"
@@ -66,6 +66,7 @@ std::string backends() {
                                 "  --track-buffer N --match-thresh F\n"
                                 "  --fuse-score | --no-fuse-score\n"
                                 "  --gmc-method sparseOptFlow|none --gmc-downscale N\n"
+                                "  --class-ema-alpha F\n"
                                 "  --overwrite");
 }
 
@@ -107,7 +108,7 @@ Options parseOptions(int argc, char** argv) {
     // Read YAML first so explicit CLI overrides are independent of argument order.
     const char* environment_config = std::getenv("MOT_CONFIG_PATH");
     std::string config_path = environment_config && *environment_config
-        ? environment_config : "weights/config.yaml";
+        ? environment_config : "configs/config.yaml";
     std::string tracker_type;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
@@ -115,13 +116,13 @@ Options parseOptions(int argc, char** argv) {
             std::string trackers;
             for (const auto name : mot::availableTrackers()) trackers += " " + std::string(name);
             std::cout << "Usage: mot_video VIDEO [--config YAML] [options]\n"
-                      << "Default config: weights/config.yaml (or MOT_CONFIG_PATH)\n"
+                      << "Default config: configs/config.yaml (or MOT_CONFIG_PATH)\n"
                       << "Trackers:" << trackers << " (select with --tracker TYPE)\n"
                       << "Detector backends:" << backends() << " (chosen by model extension)\n"
                       << "CLI overrides: --model (alias --engine), --class-count, --input-width, --input-height,\n"
                       << "  --conf, --iou, --max-det, --track-high-thresh, --track-low-thresh,\n"
                       << "  --new-track-thresh, --track-buffer, --match-thresh, --fuse-score,\n"
-                      << "  --no-fuse-score, --gmc-method, --gmc-downscale\n"
+                      << "  --no-fuse-score, --gmc-method, --gmc-downscale, --class-ema-alpha\n"
                       << "Output: --output-dir DIR, --overwrite\n";
             std::exit(0);
         }
@@ -194,6 +195,8 @@ Options parseOptions(int argc, char** argv) {
             botsort(argument).gmc_method = nextValue(index, argc, argv, argument);
         } else if (argument == "--gmc-downscale") {
             botsort(argument).gmc_downscale = parseInt(argument, nextValue(index, argc, argv, argument));
+        } else if (argument == "--class-ema-alpha") {
+            botsort(argument).class_ema_alpha = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else {
             usageError("unknown option '" + argument + "'");
         }

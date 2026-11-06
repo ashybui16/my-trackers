@@ -65,6 +65,7 @@ tracker:
   fuse_score: false
   gmc_method: "none"
   gmc_downscale: 4
+  class_ema_alpha: 0.8
 )");
         expect(custom.model_path == (directory / "custom.onnx").string(), "relative model");
         expect(custom.detector.input_width == 1280 && custom.detector.input_height == 736 &&
@@ -75,7 +76,7 @@ tracker:
         expect(bot.track_high_thresh == 0.5 && bot.track_low_thresh == 0.2 &&
                bot.new_track_thresh == 0.6 && bot.track_buffer == 75 &&
                bot.match_thresh == 0.9 && !bot.fuse_score &&
-               bot.gmc_method == "none" && bot.gmc_downscale == 4,
+               bot.gmc_method == "none" && bot.gmc_downscale == 4 && bot.class_ema_alpha == 0.8,
                "all legacy flat tracker overrides");
         const auto typed = load(R"(detector: { class_count: 3, class_names: ["a", "b"] }
 tracker:
@@ -126,6 +127,8 @@ tracker:
         reject("detector: { input_width: 0 }\ntracker: {}\n");
         reject("detector: { conf_threshold: 1.5 }\ntracker: {}\n");
         reject("detector: {}\ntracker: { type: nope }\n");
+        reject("detector: {}\ntracker: { class_ema_alpha: 1.0 }\n");
+        reject("detector: {}\ntracker: { class_ema_alpha: -0.1 }\n");
         reject("detector: {}\ntracker: { type: botsort, other: {} }\n");
         reject("detector: {}\ntracker: { type: botsort, botsort: { typo: 1 } }\n");
         reject("detector: {}\ntracker: { type: botsort, track_buffer: 3 }\n");

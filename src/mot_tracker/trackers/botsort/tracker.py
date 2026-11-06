@@ -90,12 +90,12 @@ class BoTSORT(Tracker):
         newly_removed: list[Track] = []
 
         high_detections = [
-            Track(item, index)
+            Track(item, index, self.config.class_ema_alpha)
             for index, item in enumerate(values)
             if item.score >= self.config.track_high_thresh
         ]
         low_detections = [
-            Track(item, index)
+            Track(item, index, self.config.class_ema_alpha)
             for index, item in enumerate(values)
             if self.config.track_low_thresh < item.score < self.config.track_high_thresh
         ]

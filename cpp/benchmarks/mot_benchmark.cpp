@@ -32,7 +32,7 @@ using Clock = std::chrono::steady_clock;
 
 struct Options {
     int warmup = 20, repeats = 1, max_frames = 0;
-    std::string config = "weights/config.yaml", model, dataset = "data/VisDroneMOT/test",
+    std::string config = "configs/config.yaml", model, dataset = "data/VisDroneMOT/test",
                 output = "runs/benchmarks/visdrone_test";
     std::vector<std::string> sequences;
 };

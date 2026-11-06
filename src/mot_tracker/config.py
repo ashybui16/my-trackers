@@ -1,7 +1,7 @@
 """Tracker config selection (mirrors ``cpp/include/mot/tracking/config.hpp``).
 
 ``tracker_config_from_mapping`` reads the ``tracker`` section of
-``weights/config.yaml`` with the same rules as ``readTrackerConfig`` in
+``configs/config.yaml`` with the same rules as ``readTrackerConfig`` in
 ``cpp/src/pipeline/config.cpp``.
 """
 

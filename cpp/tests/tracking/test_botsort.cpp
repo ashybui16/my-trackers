@@ -317,6 +317,54 @@ void testDuplicateRemoval() {
            "duplicate removal should keep the longer-lived track");
 }
 
+void testClassEma() {
+    mot::KalmanFilterXYWH kalman;
+    const auto run = [&](double alpha) {
+        auto track = std::make_shared<mot::Track>(detection(0.0, 0.9, 4), -1, alpha);
+        track->activate(kalman, 1, 1);
+        for (int frame = 2; frame <= 5; ++frame) {
+            track->update(mot::Track(detection(0.0, 0.9, 4), -1, alpha), frame);
+        }
+        track->update(mot::Track(detection(0.0, 0.9, 3), -1, alpha), 6);
+        return track;
+    };
+    expect(run(0.9)->classId() == 4, "EMA class should resist a single flip");
+    expect(run(0.0)->classId() == 3, "alpha=0 should follow the latest detection");
+
+    const mot::Detection first{{0.0, 0.0, 10.0, 10.0}, 0.6, 1, {0.2F, 0.6F, 0.1F}};
+    const mot::Detection second{{0.0, 0.0, 10.0, 10.0}, 0.8, 0, {0.8F, 0.1F, 0.0F}};
+    mot::Track track(first, -1, 0.5);
+    track.activate(kalman, 1, 1);
+    track.update(mot::Track(second, -1, 0.5), 2);
+    const auto& vector = track.classVector();
+    expect(vector.size() == 3, "class vector size");
+    expectNear(vector[0], 0.5, 1e-6, "class vector[0]");
+    expectNear(vector[1], 0.35, 1e-6, "class vector[1]");
+    expectNear(vector[2], 0.05, 1e-6, "class vector[2]");
+    expect(track.classId() == 0, "argmax of blended class vector");
+
+    mot::BoTSORTConfig config;
+    config.gmc_method = "none";
+    for (double bad : {1.0, -0.1}) {
+        config.class_ema_alpha = bad;
+        bool rejected = false;
+        try {
+            config.validate();
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        expect(rejected, "invalid class_ema_alpha was accepted");
+    }
+
+    config.class_ema_alpha = 0.9;
+    mot::BoTSORT tracker(config);
+    std::vector<mot::TrackOutput> outputs;
+    for (int frame = 0; frame < 6; ++frame) {
+        outputs = tracker.update({detection(0.0, 0.9, frame < 5 ? 4 : 3)});
+    }
+    expect(outputs.size() == 1 && outputs.front().class_id == 4, "tracker should report the smoothed class");
+}
+
 }
 
 int main() {
@@ -331,6 +379,7 @@ int main() {
         testSignedGmcLifecycle();
         testRemovedHistoryLimit();
         testDuplicateRemoval();
+        testClassEma();
         std::cout << "BoT-SORT tests passed\n";
         return 0;
     } catch (const std::exception& exception) {

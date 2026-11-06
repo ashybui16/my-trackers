@@ -34,7 +34,7 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
     for (std::size_t index = 0; index < detections.size(); ++index) {
         const auto& detection = detections[index];
         if (!(detection.score >= config_.track_high_thresh || detection.score > config_.track_low_thresh)) continue;
-        auto track = std::make_shared<Track>(detection, static_cast<int>(index));
+        auto track = std::make_shared<Track>(detection, static_cast<int>(index), config_.class_ema_alpha);
         if (detection.score >= config_.track_high_thresh) {
             high_detections.push_back(std::move(track));
         } else if (detection.score > config_.track_low_thresh) {

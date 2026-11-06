@@ -1,7 +1,7 @@
 # Paths are relative to this configuration file. CLI flags override these values.
 detector:
   # .engine → TensorRT, .onnx → ONNX Runtime (CPU).
-  model_path: "26c1.engine"
+  model_path: "../weights/26c1.engine"
   # Index = class_id. class_count is inferred from this list (set it to override).
   class_names:
     - pedestrian       # 0
@@ -16,7 +16,7 @@ detector:
     - motor            # 9
   input_width: 640
   input_height: 640
-  conf_threshold: 0.10
+  conf_threshold: 0.20
   iou_threshold: 0.70
   max_det: 300
 
@@ -24,11 +24,13 @@ tracker:
   # One of the trackers built into the library (see cpp/src/tracking/README.md).
   type: botsort
   botsort:
-    track_high_thresh: 0.25
-    track_low_thresh: 0.10
-    new_track_thresh: 0.25
-    track_buffer: 30
+    track_high_thresh: 0.40
+    track_low_thresh: 0.20
+    new_track_thresh: 0.60
+    track_buffer: 90
     match_thresh: 0.80
     fuse_score: true
     gmc_method: "sparseOptFlow"
     gmc_downscale: 2
+    # EMA weight on a track's class history (0 = class of the latest detection).
+    class_ema_alpha: 0.9

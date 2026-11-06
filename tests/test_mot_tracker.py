@@ -305,3 +305,33 @@ def test_geometry_and_track_output_reject_nonfinite_coordinates(invalid) -> None
         xywh_to_xyxy([0, 0, invalid, 1])
     with pytest.raises(ValueError):
         TrackOutput(1, (0, 0, invalid, 1), 0.9, 0)
+
+
+def _box_detection(class_id: int, score: float = 0.9, class_scores=None) -> Detection:
+    return Detection((0.0, 0.0, 10.0, 10.0), score, class_id, class_scores)
+
+
+def test_class_ema_resists_single_flip_and_alpha_zero_follows_latest() -> None:
+    for alpha, expected in ((0.9, 4), (0.0, 3)):
+        tracker = BoTSORT(BoTSORTConfig(gmc_method="none", class_ema_alpha=alpha))
+        for frame in range(6):
+            outputs = tracker.update([_box_detection(4 if frame < 5 else 3)])
+        assert [item.class_id for item in outputs] == [expected]
+
+
+def test_class_ema_blends_full_detector_scores() -> None:
+    kalman = KalmanFilterXYWH()
+    track = Track(_box_detection(1, 0.6, (0.2, 0.6, 0.1)), class_ema_alpha=0.5)
+    track.activate(kalman, 1, 1)
+    track.update(Track(_box_detection(0, 0.8, (0.8, 0.1, 0.0)), class_ema_alpha=0.5), 2)
+    np.testing.assert_allclose(track.class_vector, [0.5, 0.35, 0.05], atol=1e-12)
+    assert track.class_id == track.cls == 0
+
+
+def test_class_ema_config_and_scores_validation() -> None:
+    assert BoTSORTConfig.from_mapping({"class_ema_alpha": 0.9}).class_ema_alpha == 0.9
+    for bad in (1.0, -0.1):
+        with pytest.raises(ValueError):
+            BoTSORTConfig(class_ema_alpha=bad)
+    with pytest.raises(ValueError):
+        _box_detection(0, 0.5, (1.5,))

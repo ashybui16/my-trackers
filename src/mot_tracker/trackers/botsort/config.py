@@ -34,6 +34,8 @@ class BoTSORTConfig:
     fuse_score: bool = True
     gmc_method: str = "sparseOptFlow"
     gmc_downscale: int = 2
+    # EMA weight on a track's class history: v = a*v + (1-a)*scores. 0 = latest detection.
+    class_ema_alpha: float = 0.0
 
     def __post_init__(self) -> None:
         for key, value in self._normalized().items():
@@ -65,6 +67,9 @@ class BoTSORTConfig:
             raise TypeError("gmc_downscale must be an integer")
         if int(self.gmc_downscale) < 1:
             raise ValueError("gmc_downscale must be at least 1")
+        alpha = _probability(self.class_ema_alpha, "class_ema_alpha")
+        if not alpha < 1.0:
+            raise ValueError("class_ema_alpha must be in [0, 1)")
         return {
             "track_high_thresh": high,
             "track_low_thresh": low,
@@ -72,6 +77,7 @@ class BoTSORTConfig:
             "track_buffer": int(self.track_buffer),
             "match_thresh": match,
             "gmc_downscale": int(self.gmc_downscale),
+            "class_ema_alpha": alpha,
         }
 
     @classmethod
@@ -91,5 +97,6 @@ class BoTSORTConfig:
             "fuse_score",
             "gmc_method",
             "gmc_downscale",
+            "class_ema_alpha",
         }
         return cls(**{key: values[key] for key in supported if key in values})

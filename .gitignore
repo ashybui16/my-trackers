@@ -43,7 +43,6 @@ Thumbs.db
 /data/
 /runs/
 /weights/*
-!/weights/config.yaml
 /checkpoints/
 *.pt
 *.pth

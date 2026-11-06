@@ -123,7 +123,7 @@ rebuilt for the target environment.
 
 ```bash
 /tmp/my-trackers-cpp-build/cpp/apps/mot_video/mot_video data/input.ts \
-  --config weights/config.yaml \
+  --config configs/config.yaml \
   --output-dir runs/video_inference_cpp
 ```
 
@@ -133,7 +133,7 @@ are `frame,id,x,y,width,height,confidence,class,-1,-1`; frame and class IDs
 are one-based. Incomplete inference only leaves temporary dot files, which
 are removed on failure. Pass `--overwrite` to replace existing outputs.
 
-`weights/config.yaml` stores the model path, class names and all detector/tracker
+`configs/config.yaml` stores the model path, class names and all detector/tracker
 parameters. The tracker is selected by `tracker.type`; its parameters live in a
 section of the same name:
 
@@ -152,7 +152,7 @@ still accepted and read as BoT-SORT.
 Runtime parameter values come from the selected YAML; benchmark comparisons must use the same file.
 Run from the repository root, pass `--config /path/to/config.yaml`, or set
 `MOT_CONFIG_PATH`. Priority is `--config`, then `MOT_CONFIG_PATH`, then
-`weights/config.yaml`. CLI parameter flags override YAML regardless of argument
+`configs/config.yaml`. CLI parameter flags override YAML regardless of argument
 order. The detector backend is chosen from the model extension (`.onnx` → ONNX Runtime,
 `.engine`/`.trt`/`.plan` → TensorRT); `mot_video --help` lists the backends built in.
 `engine_path` is still accepted as the legacy name of `model_path` (setting both is an
@@ -173,8 +173,8 @@ The CLI uses it for annotated video output.
 
 All BoT-SORT flags are exposed by the CLI (they are rejected for other trackers): `--track-high-thresh`,
 `--track-low-thresh`, `--new-track-thresh`, `--track-buffer`,
-`--match-thresh`, `--fuse-score`/`--no-fuse-score`, `--gmc-method` and
-`--gmc-downscale`.
+`--match-thresh`, `--fuse-score`/`--no-fuse-score`, `--gmc-method`,
+`--gmc-downscale` and `--class-ema-alpha`.
 
 ## Using the library from another application
 
@@ -199,7 +199,7 @@ Detection and tracking from a YAML file:
 #include <mot/tensorrt/detector.hpp>      // or <mot/onnxruntime/detector.hpp>
 #include <mot/tracking/factory.hpp>
 
-auto config = mot::PipelineConfig::fromFile("weights/config.yaml");
+auto config = mot::PipelineConfig::fromFile("configs/config.yaml");
 mot::Pipeline pipeline(
     std::make_unique<mot::TensorRTDetector>(config.model_path, config.detector, config.class_names),
     // or std::make_unique<mot::OnnxRuntimeDetector>(config.model_path, config.detector, config.class_names)
@@ -250,7 +250,7 @@ detector + tracker on a VisDrone-MOT split, e.g. `data/VisDroneMOT/test`, and me
 cmake -S . -B /tmp/my-trackers-perf -DCMAKE_BUILD_TYPE=Release \
   -DMOT_BUILD_BENCHMARKS=ON -DCUDAToolkit_ROOT=/usr/local/cuda
 cmake --build /tmp/my-trackers-perf -j4 --target mot_benchmark
-/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark --config weights/config.yaml \
+/tmp/my-trackers-perf/cpp/benchmarks/mot_benchmark --config configs/config.yaml \
   --dataset data/VisDroneMOT/test \
   --output-dir runs/benchmarks/visdrone_test
 ```

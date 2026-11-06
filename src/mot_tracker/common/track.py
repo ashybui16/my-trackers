@@ -25,10 +25,27 @@ class TrackState(IntEnum):
     Removed = REMOVED
 
 
+def _class_vector(detection: Detection) -> np.ndarray:
+    """Detector class scores when available, otherwise ``score`` at ``class_id``."""
+
+    class_id = int(detection.class_id)
+    if detection.class_scores is not None:
+        scores = np.asarray(detection.class_scores, dtype=np.float64)
+        if class_id >= scores.size:
+            scores = np.pad(scores, (0, class_id + 1 - scores.size))
+            scores[class_id] = detection.score
+        return scores
+    if class_id < 0:
+        return np.zeros(0, dtype=np.float64)
+    one_hot = np.zeros(class_id + 1, dtype=np.float64)
+    one_hot[class_id] = detection.score
+    return one_hot
+
+
 class Track:
     """A single XYWH Kalman track used internally by :class:`BoTSORT`."""
 
-    def __init__(self, detection: Detection, detection_index: int = -1) -> None:
+    def __init__(self, detection: Detection, detection_index: int = -1, class_ema_alpha: float = 0.0) -> None:
         self._tlwh = np.asarray(
             (
                 detection.bbox_xyxy[0],
@@ -47,6 +64,8 @@ class Track:
         self.score = float(detection.score)
         self.class_id = int(detection.class_id)
         self.cls = self.class_id
+        self.class_vector = _class_vector(detection)
+        self.class_ema_alpha = float(class_ema_alpha)
         self.detection_index = int(detection_index)
         self.idx = self.detection_index
         self.tracklet_len = 0
@@ -129,10 +148,23 @@ class Track:
         self.state = TrackState.TRACKED
         self.is_activated = True
         self.score = float(detection_track.score)
-        self.class_id = int(detection_track.class_id)
-        self.cls = self.class_id
+        self._update_class(detection_track)
         self.detection_index = int(detection_track.detection_index)
         self.idx = self.detection_index
+
+    def _update_class(self, detection_track: "Track") -> None:
+        observed = detection_track.class_vector
+        alpha = self.class_ema_alpha
+        if alpha <= 0.0 or observed.size == 0 or self.class_vector.size == 0:
+            self.class_vector = observed.copy()
+            self.class_id = int(detection_track.class_id)
+        else:
+            size = max(self.class_vector.size, observed.size)
+            history = np.pad(self.class_vector, (0, size - self.class_vector.size))
+            current = np.pad(observed, (0, size - observed.size))
+            self.class_vector = alpha * history + (1.0 - alpha) * current
+            self.class_id = int(np.argmax(self.class_vector))  # First maximum wins ties.
+        self.cls = self.class_id
 
     def re_activate(self, detection_track: "Track", frame_id: int, new_id: bool = False, track_id: int | None = None) -> None:
         self.update(detection_track, frame_id)

@@ -39,7 +39,7 @@ Applications pick a tracker by config and call `create_tracker(config)`.
 4. **Tests.** `tests/test_tracker_contract.py` picks up the new tracker automatically.
    Put tracker-specific tests in `tests/test_bytetrack.py`.
 
-YAML (`weights/config.yaml`) then selects it with `tracker: {type: bytetrack, bytetrack: {...}}`.
+YAML (`configs/config.yaml`) then selects it with `tracker: {type: bytetrack, bytetrack: {...}}`.
 
 ## Porting to C++
 

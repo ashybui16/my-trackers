@@ -7,6 +7,7 @@
 #include <opencv2/core.hpp>
 
 #include <memory>
+#include <vector>
 
 namespace mot {
 
@@ -23,7 +24,8 @@ enum class TrackState {
 
 class Track {
 public:
-    explicit Track(const Detection& detection, int detection_index = -1);
+    // class_ema_alpha: EMA weight on class history; 0 makes the class follow the latest match.
+    explicit Track(const Detection& detection, int detection_index = -1, double class_ema_alpha = 0.0);
 
     void activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id);
     void predict();
@@ -42,6 +44,7 @@ public:
     int trackId() const { return track_id_; }
     double score() const { return score_; }
     int classId() const { return class_id_; }
+    const std::vector<double>& classVector() const { return class_vector_; }
     int detectionIndex() const { return detection_index_; }
     bool isActivated() const { return is_activated_; }
     TrackState state() const { return state_; }
@@ -51,6 +54,8 @@ public:
     int age() const { return frame_id_ - start_frame_; }
 
 private:
+    void updateClass(const Track& detection_track);
+
     BBox initial_bbox_{};
     KalmanFilterXYWH* kalman_filter_{nullptr};
     cv::Mat mean_;
@@ -60,6 +65,8 @@ private:
     TrackState state_{TrackState::New};
     double score_{0.0};
     int class_id_{0};
+    std::vector<double> class_vector_;
+    double class_ema_alpha_{0.0};
     int detection_index_{-1};
     int tracklet_len_{0};
     int frame_id_{0};

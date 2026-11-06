@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace mot::detail {
@@ -144,9 +145,15 @@ std::vector<mot::Detection> processRaw(const float* output,
         if (box[2] <= box[0] || box[3] <= box[1]) {
             continue;
         }
+        std::vector<float> class_scores(static_cast<std::size_t>(options.class_count));
+        for (int class_index = 0; class_index < options.class_count; ++class_index) {
+            class_scores[static_cast<std::size_t>(class_index)] =
+                std::clamp(at(candidate.source_index, 4 + class_index), 0.0F, 1.0F);
+        }
         detections.emplace_back(mot::BBox{box[0], box[1], box[2], box[3]},
                                 candidate.score,
-                                candidate.class_id);
+                                candidate.class_id,
+                                std::move(class_scores));
     }
     return detections;
 }
