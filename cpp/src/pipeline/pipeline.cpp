@@ -12,6 +12,11 @@ Pipeline::Pipeline(std::unique_ptr<IDetector> detector, std::unique_ptr<ITracker
 }
 
 std::vector<TrackOutput> Pipeline::process(const cv::Mat& frame) {
+    if (tracker_->usesRecoveredDetections()) {
+        std::vector<Detection> recovered;
+        const auto detections = detector_->detectWithRecovered(frame, recovered);
+        return tracker_->updateWithRecovered(detections, recovered, frame);
+    }
     const auto detections = detector_->detect(frame);
     return tracker_->update(detections, frame);
 }

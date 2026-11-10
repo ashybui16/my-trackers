@@ -20,9 +20,16 @@ public:
         const double dx = 3.0 * calls;
         return {{{50 + dx, 60, 90 + dx, 120}, 0.9, 1}};
     }
+    std::vector<mot::Detection> detectWithRecovered(const cv::Mat& frame,
+                                                    std::vector<mot::Detection>& recovered) override {
+        ++recovered_calls;
+        recovered.clear();
+        return detect(frame);
+    }
     const std::vector<std::string>& classNames() const override { return names; }
 
     int calls{0};
+    int recovered_calls{0};
     std::vector<std::string> names{"a", "b"};
 };
 
@@ -59,12 +66,18 @@ int main() {
                "pipeline calls detector, tracker and reset exactly once");
         expect(pipeline.detector().classNames().size() == 2, "detector accessor");
 
+        expect(detector_view->recovered_calls == 0, "recovered detections are only computed when used");
+
         for (const auto type : mot::availableTrackers()) {
             pipeline.setTracker(mot::createTracker(mot::defaultTrackerConfig(type)));
             expect(pipeline.tracker().name() == type, "setTracker replaced the tracker");
+            const int before = detector_view->recovered_calls;
             std::vector<mot::TrackOutput> tracks;
             for (int i = 0; i < 6; ++i) tracks = pipeline.process(frame);
             expect(tracks.size() == 1, std::string(type) + ": one tracked object");
+            const int expected = pipeline.tracker().usesRecoveredDetections() ? 6 : 0;
+            expect(detector_view->recovered_calls - before == expected,
+                   std::string(type) + ": recovered detections requested only when the tracker uses them");
         }
 
         bool rejected = false;

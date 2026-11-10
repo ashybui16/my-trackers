@@ -189,7 +189,7 @@ void testSparseGmcTranslation() {
 }
 
 void testWarpMatchesUltralytics() {
-    // Reference values from Ultralytics 8.4.157 multi_gmc, 10-degree rotation and (5, 7) shift.
+    // Reference values from Ultralytics multi_gmc (sizes follow abs(R)), 10-degree rotation and (5, 7) shift.
     mot::KalmanFilterXYWH kalman;
     auto state = kalman.initiate({40.0, 30.0, 20.0, 10.0});
     for (int index = 4; index < 8; ++index) {
@@ -200,16 +200,19 @@ void testWarpMatchesUltralytics() {
                           std::sin(angle), std::cos(angle), 7.0);
     mot::warpXywhState(state.mean, state.covariance, warp);
     const std::array<double, 8> expected_mean = {
-        39.18286479048041, 43.49015969704345, 17.959673283574855, 13.321041083460686,
-        2.2598305483689027, 4.460175545049623, 1.7959673283574857, 1.3321041083460687};
+        39.18286479048041, 43.49015969704345, 21.432636836913463, 13.321041083460686,
+        2.2598305483689027, 4.460175545049623, 2.1432636836913463, 1.3321041083460687};
     const std::array<double, 8> expected_diagonal = {
         3.9095389311788624, 1.0904610688211374, 3.9095389311788624, 1.0904610688211374,
         1.527163644991743, 0.42596135500825677, 1.527163644991743, 0.42596135500825677};
     for (int index = 0; index < 8; ++index) {
         expectNear(state.mean.at<double>(index, 0), expected_mean[index], 1e-12, "GMC mean parity");
         for (int column = 0; column < 8; ++column) {
+            // Off-diagonal term inside each (x, y), (w, h), (vx, vy), (vw, vh) block.
+            constexpr std::array<double, 4> block_offdiagonal{
+                0.513030214988503, 0.8550503583141716, 0.200402427729884, 0.33400404621647334};
             const double expected = index == column ? expected_diagonal[index]
-                : index / 2 == column / 2 ? (index < 4 ? 0.513030214988503 : 0.200402427729884)
+                : index / 2 == column / 2 ? block_offdiagonal[static_cast<std::size_t>(index / 2)]
                                          : 0.0;
             expectNear(state.covariance.at<double>(index, column), expected, 1e-12, "GMC covariance parity");
         }
@@ -220,18 +223,20 @@ void testWarpMatchesUltralytics() {
     const cv::Mat large_rotation = (cv::Mat_<double>(2, 3) << std::cos(2.2), -std::sin(2.2), 5.0,
                                     std::sin(2.2), std::cos(2.2), 7.0);
     track.applyWarp(large_rotation);
+    // A 2.2 rad rotation: the size becomes the enclosing box, never negative.
     expectNear(track.mean().at<double>(0, 0), -42.79493680480154, 1e-12, "GMC rotated center");
-    expectNear(track.mean().at<double>(2, 0), -19.854986383302816, 1e-12, "GMC signed width");
-    expectNear(track.mean().at<double>(3, 0), 10.284916903838344, 1e-12, "GMC rotated height");
+    expectNear(track.mean().at<double>(1, 0), 21.68482263512323, 1e-12, "GMC rotated center y");
+    expectNear(track.mean().at<double>(2, 0), 19.854986383302816, 1e-12, "GMC enclosing width");
+    expectNear(track.mean().at<double>(3, 0), 22.05493924894526, 1e-12, "GMC enclosing height");
     const mot::BBox expected_box{
-        -32.86744361315013, 16.542364183204057, -52.722429996452945, 26.8272810870424};
+        -52.722429996452945, 10.6573530106506, -32.86744361315013, 32.712292259595856};
     const auto box = track.bbox();
     for (std::size_t index = 0; index < box.size(); ++index) {
-        expectNear(box[index], expected_box[index], 1e-12, "signed GMC bbox parity");
+        expectNear(box[index], expected_box[index], 1e-12, "GMC bbox parity");
     }
-    expectNear(track.xywh()[2], -19.854986383302816, 1e-12, "signed GMC xywh parity");
+    expect(box[0] < box[2] && box[1] < box[3], "GMC must not invert box corners");
     const mot::TrackOutput output(1, box, 0.9, 0);
-    expect(output.bbox_xyxy == box, "track output must preserve inverted GMC corners");
+    expect(output.bbox_xyxy == box, "track output keeps the GMC box");
     bool rejected = false;
     try {
         mot::TrackOutput invalid(1, {0, 0, std::numeric_limits<double>::infinity(), 1}, 0.9, 0);
@@ -242,45 +247,42 @@ void testWarpMatchesUltralytics() {
     expect(rejected, "non-finite track output was accepted");
 
     track.predict();
-    expectNear(track.mean().at<double>(2, 0), -19.854986383302816, 1e-12,
-               "predict must not repair signed GMC width");
+    expectNear(track.mean().at<double>(2, 0), 19.854986383302816, 1e-12,
+               "predict keeps the GMC width");
     track.update(mot::Track({{39.5, 29.5, 40.5, 30.5}, 0.8, 2}), 2);
-    // Golden values from BOTrack.predict/update, with no size correction before or after Kalman.
+    // Golden values from Ultralytics multi_gmc + KalmanFilterXYWH predict/update (no confidence).
     const std::array<double, 8> updated_mean{
-        18.502678114060394, 27.062568670904014, -3.20462825092617, 1.0464663753364114,
-        11.179857593517506, 0.6854816591811217, 3.49599153973328, -2.5820180205521126};
+        20.004283535053432, 20.978919039334453, 3.5836856844065323, 3.2988925237897746,
+        12.023456144637185, -2.7322990327118863, -3.844835678227458, -4.622796123979132};
     const std::array<double, 8> updated_diagonal{
-        0.7401845468830346, 0.24617419319732825, 0.7401845468830346, 0.24617419319732825,
-        0.6662386392927906, 0.8718378512325102, 0.6662386392927906, 0.8718378512325102};
+        0.7545623754118265, 0.9579741599185647, 0.6757772647368383, 0.8699499850531582,
+        0.6707765223027614, 0.9611918406110518, 0.6459106244757863, 0.9334099396940575};
     for (int index = 0; index < 8; ++index) {
         expectNear(track.mean().at<double>(index, 0), updated_mean[index], 1e-10,
-                   "Kalman update after signed GMC mean parity");
+                   "Kalman update after GMC mean parity");
         expectNear(track.covariance().at<double>(index, index), updated_diagonal[index], 1e-10,
-                   "Kalman update after signed GMC covariance parity");
+                   "Kalman update after GMC covariance parity");
     }
 }
 
-void testSignedGmcLifecycle() {
+void testLargeRotationGmcLifecycle() {
     mot::BoTSORTConfig config;
     config.gmc_method = "none";
     config.track_buffer = 1;
     mot::BoTSORT tracker(config);
     const mot::Detection observed({30, 25, 50, 35}, 0.9, 0);
-    expect(tracker.update({observed}).front().track_id == 1, "signed GMC initial ID");
+    expect(tracker.update({observed}).front().track_id == 1, "large-rotation GMC initial ID");
+    // 2.2 rad rotation about the box center: abs(R) turns the 20x10 box into its ~19.9x22.1 enclosing box.
     const double cosine = std::cos(2.2);
     const double sine = std::sin(2.2);
     const cv::Mat warp = (cv::Mat_<double>(2, 3) << cosine, -sine, 40 - 40 * cosine + 30 * sine,
                           sine, cosine, 30 - 40 * sine - 30 * cosine);
     tracker.trackedTracks().front()->applyWarp(warp);
-    expect(tracker.update({observed}).empty(), "inverted track must not match using a fallback bbox");
-    expect(tracker.lostTracks().size() == 1 && tracker.lostTracks().front()->trackId() == 1 &&
-               tracker.lostTracks().front()->state() == mot::TrackState::Lost,
-           "inverted track must become lost");
-    expect(tracker.lostTracks().front()->bbox()[0] > tracker.lostTracks().front()->bbox()[2],
-           "lost track must retain signed dimensions");
-    const auto recovered = tracker.update({observed});
-    expect(recovered.size() == 1 && recovered.front().track_id == 2,
-           "new detection should confirm a new ID after signed GMC");
+    const auto box = tracker.trackedTracks().front()->bbox();
+    expect(box[0] < box[2] && box[1] < box[3], "large-rotation GMC keeps a valid box");
+    const auto matched = tracker.update({observed});
+    expect(matched.size() == 1 && matched.front().track_id == 1,
+           "track keeps its ID after a large-rotation GMC");
 }
 
 void testRemovedHistoryLimit() {
@@ -376,7 +378,7 @@ int main() {
         testGmcRequirement();
         testSparseGmcTranslation();
         testWarpMatchesUltralytics();
-        testSignedGmcLifecycle();
+        testLargeRotationGmcLifecycle();
         testRemovedHistoryLimit();
         testDuplicateRemoval();
         testClassEma();

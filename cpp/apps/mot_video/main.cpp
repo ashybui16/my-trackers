@@ -61,12 +61,14 @@ std::string backends() {
                                 "  --output-dir DIR              output directory\n"
                                 "  --input-width N --input-height N\n"
                                 "  --conf F --iou F --max-det N\n"
-                                "BoT-SORT (--tracker botsort):\n"
+                                "Trackers (botsort, tracktrack):\n"
                                 "  --track-high-thresh F --track-low-thresh F --new-track-thresh F\n"
                                 "  --track-buffer N --match-thresh F\n"
-                                "  --fuse-score | --no-fuse-score\n"
                                 "  --gmc-method sparseOptFlow|none --gmc-downscale N\n"
+                                "BoT-SORT only (--tracker botsort):\n"
+                                "  --fuse-score | --no-fuse-score\n"
                                 "  --class-ema-alpha F\n"
+                                "Other TrackTrack options are set in YAML (tracker.tracktrack).\n"
                                 "  --overwrite");
 }
 
@@ -144,6 +146,8 @@ Options parseOptions(int argc, char** argv) {
         if (!config) usageError(option + " only applies to --tracker botsort");
         return *config;
     };
+    // Applies a setting that every tracker config has under the same name.
+    const auto anyTracker = [&](const auto& apply) { std::visit(apply, options.config.tracker); };
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--help" || argument == "-h") {
@@ -182,19 +186,26 @@ Options parseOptions(int argc, char** argv) {
         } else if (argument == "--max-det") {
             options.config.detector.max_det = parseInt(argument, nextValue(index, argc, argv, argument));
         } else if (argument == "--track-high-thresh") {
-            botsort(argument).track_high_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.track_high_thresh = value; });
         } else if (argument == "--track-low-thresh") {
-            botsort(argument).track_low_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.track_low_thresh = value; });
         } else if (argument == "--new-track-thresh") {
-            botsort(argument).new_track_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.new_track_thresh = value; });
         } else if (argument == "--track-buffer") {
-            botsort(argument).track_buffer = parseInt(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseInt(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.track_buffer = value; });
         } else if (argument == "--match-thresh") {
-            botsort(argument).match_thresh = parseDouble(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.match_thresh = value; });
         } else if (argument == "--gmc-method") {
-            botsort(argument).gmc_method = nextValue(index, argc, argv, argument);
+            const auto value = nextValue(index, argc, argv, argument);
+            anyTracker([&](auto& config) { config.gmc_method = value; });
         } else if (argument == "--gmc-downscale") {
-            botsort(argument).gmc_downscale = parseInt(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseInt(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.gmc_downscale = value; });
         } else if (argument == "--class-ema-alpha") {
             botsort(argument).class_ema_alpha = parseDouble(argument, nextValue(index, argc, argv, argument));
         } else {

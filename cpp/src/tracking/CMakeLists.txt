@@ -9,5 +9,9 @@ mot_add_library(mot_tracking ALIAS mot::tracking
         common/track.cpp
         botsort/botsort.cpp
         botsort/botsort_config.cpp
+        tracktrack/tracktrack.cpp
+        tracktrack/tracktrack_config.cpp
+        tracktrack/tracktrack_detail.cpp
+        tracktrack/tt_track.cpp
     PUBLIC_DEPS mot_core
     PRIVATE_DEPS opencv_video opencv_calib3d opencv_features2d opencv_imgproc)

@@ -234,6 +234,34 @@ void testClipAfterNmsAndNoBackfill() {
 
 }
 
+// Ultralytics TrackTrack `compute_dets_del`: boxes a loose NMS (IoU 0.95) keeps that the tight NMS
+// dropped, excluding near-duplicates (IoU >= 0.97) of kept boxes.
+void testRecoveredDetections() {
+    Tensor tensor = makeTensor(4);
+    setCandidate(tensor, 0, 30.0F, 30.0F, 20.0F, 20.0F, 0, 0.9F);   // kept
+    setCandidate(tensor, 1, 32.0F, 30.0F, 20.0F, 20.0F, 0, 0.8F);   // IoU ~0.82: dropped, recovered
+    setCandidate(tensor, 2, 30.1F, 30.0F, 20.0F, 20.0F, 0, 0.7F);   // IoU ~0.99: dropped by both NMS
+    setCandidate(tensor, 3, 80.0F, 80.0F, 10.0F, 10.0F, 1, 0.6F);   // kept, no overlap
+    const auto config = options();
+    mot::detail::OutputWorkspace workspace;
+    std::vector<mot::Detection> recovered{{{0, 0, 1, 1}, 0.5, 0}};  // stale content must be cleared
+    const auto detections = mot::detail::processOutput(tensor.values.data(), tensor.candidate_count, config,
+                                                       workspace, &recovered);
+    expect(detections.size() == 2, "recovered: tight NMS result unchanged");
+    expect(recovered.size() == 1, "recovered: one recovered detection");
+    expectNear(recovered[0].bbox_xyxy[0], 22.0, 1e-5, "recovered: box");
+    expectNear(recovered[0].score, 0.8, 1e-6, "recovered: score");
+    expect(recovered[0].class_scores.size() == static_cast<std::size_t>(kClassCount), "recovered: class scores");
+
+    const auto plain = mot::detail::processOutput(tensor.values.data(), tensor.candidate_count, config, workspace);
+    expect(plain.size() == detections.size() && plain[0].bbox_xyxy == detections[0].bbox_xyxy,
+           "recovered: plain call matches");
+
+    Tensor empty = makeTensor(1);
+    mot::detail::processOutput(empty.values.data(), empty.candidate_count, config, workspace, &recovered);
+    expect(recovered.empty(), "recovered: no detections gives none");
+}
+
 int main() {
     try {
         testVendoredUltralyticsReference();
@@ -243,6 +271,7 @@ int main() {
         testThirtyThousandCandidateLimit();
         testClipAfterNmsAndNoBackfill();
         testClassScoresAreKept();
+        testRecoveredDetections();
         std::cout << "All detector postprocess tests passed\n";
         return 0;
     } catch (const std::exception& exception) {

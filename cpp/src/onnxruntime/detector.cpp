@@ -144,6 +144,15 @@ const std::string& OnnxRuntimeDetector::inputName() const { return impl_->input_
 const std::string& OnnxRuntimeDetector::outputName() const { return impl_->output_name; }
 
 std::vector<Detection> OnnxRuntimeDetector::detect(const cv::Mat& frame) {
+    return run(frame, nullptr);
+}
+
+std::vector<Detection> OnnxRuntimeDetector::detectWithRecovered(const cv::Mat& frame,
+                                                                std::vector<Detection>& recovered) {
+    return run(frame, &recovered);
+}
+
+std::vector<Detection> OnnxRuntimeDetector::run(const cv::Mat& frame, std::vector<Detection>* recovered) {
     const detail::LetterboxInfo letterbox = detail::preprocess(frame, impl_->canvas, impl_->input.data());
     try {
         impl_->run();
@@ -157,7 +166,7 @@ std::vector<Detection> OnnxRuntimeDetector::detect(const cv::Mat& frame) {
     options.max_det = config_.max_det;
     options.transform = {letterbox.scale, letterbox.pad_x, letterbox.pad_y, frame.cols, frame.rows};
     return detail::processOutput(impl_->output.data(), impl_->candidate_count, options,
-                                 impl_->output_workspace);
+                                 impl_->output_workspace, recovered);
 }
 
 }

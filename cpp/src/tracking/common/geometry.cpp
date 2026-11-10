@@ -117,12 +117,15 @@ void warpXywhState(cv::Mat& mean, cv::Mat& covariance, const cv::Mat& warp) {
             throw std::invalid_argument("GMC warp must contain only finite values");
         }
     }
-    // Ultralytics applies the same R to all four XYWH/velocity state pairs.
+    // As Ultralytics multi_gmc: centers and center velocities follow the signed R; sizes and size
+    // velocities follow abs(R) (the box enclosing the rotated box), so sizes never flip sign.
     for (int block = 0; block < 4; ++block) {
-        transform.at<double>(2 * block, 2 * block) = a00;
-        transform.at<double>(2 * block, 2 * block + 1) = a01;
-        transform.at<double>(2 * block + 1, 2 * block) = a10;
-        transform.at<double>(2 * block + 1, 2 * block + 1) = a11;
+        const bool size_block = block == 1 || block == 3;
+        const auto entry = [size_block](double value) { return size_block ? std::abs(value) : value; };
+        transform.at<double>(2 * block, 2 * block) = entry(a00);
+        transform.at<double>(2 * block, 2 * block + 1) = entry(a01);
+        transform.at<double>(2 * block + 1, 2 * block) = entry(a10);
+        transform.at<double>(2 * block + 1, 2 * block + 1) = entry(a11);
     }
     cv::Mat transformed_mean = transform * mean;
     transformed_mean.at<double>(0, 0) += warp.at<double>(0, 2);

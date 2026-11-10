@@ -2,6 +2,7 @@
 
 #include "tracking/common/assignment.hpp"
 #include "tracking/common/track.hpp"
+#include "tracking/common/track_pool.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -17,17 +18,14 @@ AssignmentResult associate(const std::vector<TrackPtr>& tracks,
                            double match_thresh,
                            bool use_score_fusion);
 
+// Track overloads of the generic helpers in track_pool.hpp (they also accept braced lists).
 std::vector<TrackPtr> jointTracks(const std::vector<TrackPtr>& first,
                                   const std::vector<TrackPtr>& second);
 std::vector<TrackPtr> subtractTracks(const std::vector<TrackPtr>& first,
                                      const std::vector<TrackPtr>& second);
 void applyGMC(const std::vector<TrackPtr>& tracks, const cv::Mat& warp);
 
-struct DuplicateResult {
-    std::vector<TrackPtr> tracked;
-    std::vector<TrackPtr> lost;
-    std::vector<TrackPtr> removed;
-};
+using DuplicateResult = BasicDuplicateResult<TrackPtr>;
 
 DuplicateResult removeDuplicateTracks(const std::vector<TrackPtr>& tracked,
                                       const std::vector<TrackPtr>& lost,

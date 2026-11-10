@@ -6,6 +6,10 @@ Every tracker implements `mot::ITracker` (`include/mot/tracking/tracker.hpp`):
 std::vector<TrackOutput> update(const std::vector<Detection>& detections, const cv::Mat& frame);
 void reset();
 std::string_view name() const;
+// Optional: trackers that use recovered (loose-NMS) detections override both.
+std::vector<TrackOutput> updateWithRecovered(const std::vector<Detection>& detections,
+                                             const std::vector<Detection>& recovered, const cv::Mat& frame);
+bool usesRecoveredDetections() const;
 ```
 
 Applications never name a tracker class directly. They pick one by config
@@ -16,8 +20,9 @@ Applications never name a tracker class directly. They pick one by config
 
 | Path | Contents |
 |---|---|
-| `common/` | Building blocks shared by SORT-family trackers: Kalman filter, linear assignment, IoU/geometry, association helpers, GMC, `Track`. Private headers, not installed. |
+| `common/` | Building blocks shared by SORT-family trackers: Kalman filter, linear assignment, IoU/geometry, association helpers, GMC, `Track`. `track_pool.hpp` has pool bookkeeping templated on the track type, for trackers with their own track class. Private headers, not installed. |
 | `botsort/` | BoT-SORT (Ultralytics-compatible). |
+| `tracktrack/` | TrackTrack (Ultralytics-compatible, no ReID). Uses recovered detections via `updateWithRecovered`. |
 | `factory.cpp` | `createTracker`, `defaultTrackerConfig`, `trackerType`, `availableTrackers`. |
 
 ## Adding a tracker (example: ByteTrack)

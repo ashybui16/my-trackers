@@ -224,16 +224,23 @@ cv::Mat readFrame(const fs::path &path) {
 
 StageTimes runSequence(const Sequence &sequence, const mot::PipelineConfig &config, mot::IDetector &detector) {
     const auto tracker = mot::createTracker(config.tracker);
+    const bool use_recovered = tracker->usesRecoveredDetections();
+    std::vector<mot::Detection> recovered;
     StageTimes t;
     for (std::size_t index = 0; index < sequence.frames.size(); ++index) {
         const auto start = Clock::now();
         const cv::Mat frame = readFrame(sequence.frames[index]);
         const double decode = elapsed(start);
         auto tick = Clock::now();
-        const auto detections = detector.detect(frame);
+        // The extra (loose) NMS pass for recovered detections counts as detector time.
+        const auto detections = use_recovered ? detector.detectWithRecovered(frame, recovered) : detector.detect(frame);
         const double detect = elapsed(tick);
         tick = Clock::now();
-        tracker->update(detections, frame);
+        if (use_recovered) {
+            tracker->updateWithRecovered(detections, recovered, frame);
+        } else {
+            tracker->update(detections, frame);
+        }
         const double track = elapsed(tick);
         t.decode.push_back(decode);
         t.detector.push_back(detect);

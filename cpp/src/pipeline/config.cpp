@@ -97,6 +97,28 @@ void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTCo
     readValue(node, "class_ema_alpha", config.class_ema_alpha);
 }
 
+void readTracker(const cv::FileNode& node, const std::string& section, TrackTrackConfig& config) {
+    checkKeys(node, {"track_high_thresh", "track_low_thresh", "new_track_thresh", "track_buffer",
+                     "match_thresh", "lost_match_thr", "conf_weight", "angle_weight", "penalty_p",
+                     "penalty_q", "reduce_step", "tai_thr", "min_track_len", "gmc_method",
+                     "gmc_downscale"}, section);
+    readValue(node, "track_high_thresh", config.track_high_thresh);
+    readValue(node, "track_low_thresh", config.track_low_thresh);
+    readValue(node, "new_track_thresh", config.new_track_thresh);
+    readValue(node, "track_buffer", config.track_buffer);
+    readValue(node, "match_thresh", config.match_thresh);
+    readValue(node, "lost_match_thr", config.lost_match_thr);
+    readValue(node, "conf_weight", config.conf_weight);
+    readValue(node, "angle_weight", config.angle_weight);
+    readValue(node, "penalty_p", config.penalty_p);
+    readValue(node, "penalty_q", config.penalty_q);
+    readValue(node, "reduce_step", config.reduce_step);
+    readValue(node, "tai_thr", config.tai_thr);
+    readValue(node, "min_track_len", config.min_track_len);
+    readValue(node, "gmc_method", config.gmc_method);
+    readValue(node, "gmc_downscale", config.gmc_downscale);
+}
+
 TrackerConfig readTrackerConfig(const cv::FileNode& node) {
     if (!node.isMap()) throw std::invalid_argument("tracker must be a mapping");
     if (node["type"].isNone()) {

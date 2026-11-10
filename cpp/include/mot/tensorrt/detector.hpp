@@ -24,6 +24,7 @@ public:
     TensorRTDetector& operator=(TensorRTDetector&&) noexcept;
 
     std::vector<Detection> detect(const cv::Mat& frame) override;
+    std::vector<Detection> detectWithRecovered(const cv::Mat& frame, std::vector<Detection>& recovered) override;
     const std::vector<std::string>& classNames() const override { return class_names_; }
 
     const DetectorConfig& config() const { return config_; }

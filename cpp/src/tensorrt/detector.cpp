@@ -178,7 +178,8 @@ struct TensorRTDetector::Impl {
     void downloadOutput();
     std::vector<mot::Detection> decodeOutput(const cv::Size& frame_size,
                                                     const LetterboxInfo& letterbox,
-                                                    const DetectorConfig& config);
+                                                    const DetectorConfig& config,
+                                                    std::vector<mot::Detection>* recovered);
 };
 
 void TensorRTDetector::Impl::loadEngine(const std::string& engine_path) {
@@ -292,14 +293,15 @@ void TensorRTDetector::Impl::downloadOutput() {
 }
 
 std::vector<mot::Detection> TensorRTDetector::Impl::decodeOutput(
-    const cv::Size& frame_size, const LetterboxInfo& letterbox, const DetectorConfig& config) {
+    const cv::Size& frame_size, const LetterboxInfo& letterbox, const DetectorConfig& config,
+    std::vector<mot::Detection>* recovered) {
     detail::OutputOptions options;
     options.class_count = config.class_count;
     options.conf_threshold = config.conf_threshold;
     options.iou_threshold = config.iou_threshold;
     options.max_det = config.max_det;
     options.transform = {letterbox.scale, letterbox.pad_x, letterbox.pad_y, frame_size.width, frame_size.height};
-    return detail::processOutput(host_output.data(), candidate_count, options, output_workspace);
+    return detail::processOutput(host_output.data(), candidate_count, options, output_workspace, recovered);
 }
 
 TensorRTDetector::TensorRTDetector(const std::string& engine_path, DetectorConfig config,
@@ -329,7 +331,16 @@ std::vector<mot::Detection> TensorRTDetector::detect(const cv::Mat& frame) {
     impl_->uploadInput();
     impl_->execute();
     impl_->downloadOutput();
-    return impl_->decodeOutput(frame.size(), letterbox, config_);
+    return impl_->decodeOutput(frame.size(), letterbox, config_, nullptr);
+}
+
+std::vector<mot::Detection> TensorRTDetector::detectWithRecovered(const cv::Mat& frame,
+                                                                  std::vector<mot::Detection>& recovered) {
+    const LetterboxInfo letterbox = preprocess(frame, impl_->canvas, impl_->host_input.data());
+    impl_->uploadInput();
+    impl_->execute();
+    impl_->downloadOutput();
+    return impl_->decodeOutput(frame.size(), letterbox, config_, &recovered);
 }
 
 }

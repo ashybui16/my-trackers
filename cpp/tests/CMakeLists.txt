@@ -5,6 +5,11 @@ mot_add_test(botsort
     SOURCES tracking/test_botsort.cpp
     LIBS mot_tracking opencv_video
     LABELS "tracking;cpu")
+mot_add_test(tracktrack
+    SOURCES tracking/test_tracktrack.cpp
+    LIBS mot_tracking
+    ARGS "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tracktrack_parity.json"
+    LABELS "tracking;cpu")
 mot_add_test(tracker_contract
     SOURCES tracking/test_tracker_contract.cpp
     LIBS mot_tracking

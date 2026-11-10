@@ -1,6 +1,7 @@
 #include "mot/tracking/factory.hpp"
 
 #include "tracking/botsort/botsort.hpp"
+#include "tracking/tracktrack/tracktrack.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -12,6 +13,10 @@ namespace {
 
 std::unique_ptr<ITracker> makeTracker(const BoTSORTConfig& config) {
     return std::make_unique<BoTSORT>(config);
+}
+
+std::unique_ptr<ITracker> makeTracker(const TrackTrackConfig& config) {
+    return std::make_unique<TrackTrack>(config);
 }
 
 template <std::size_t... I>

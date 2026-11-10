@@ -6,7 +6,7 @@ trackers can be added and so another application can consume it as a CMake packa
 | Target | Contents | Needs CUDA |
 |---|---|---|
 | `mot::core` | `Detection`, `TrackOutput`, `BBox`, `DetectorConfig` | no |
-| `mot::tracking` | `ITracker`, `TrackerConfig`, `createTracker()`, all trackers (BoT-SORT today) | no |
+| `mot::tracking` | `ITracker`, `TrackerConfig`, `createTracker()`, all trackers (BoT-SORT, TrackTrack) | no |
 | `mot::pipeline` | `Pipeline` (any `IDetector` + any `ITracker`), strict YAML `PipelineConfig` | no |
 | `mot::visualization` | `Annotator` for tracks and detections | no |
 | `mot::tensorrt` | `TensorRTDetector` (implements `IDetector`) | yes |
@@ -21,7 +21,7 @@ cpp/
 ├── include/mot/{core,detection,tracking,pipeline,tensorrt,onnxruntime,visualization}/  # public API
 ├── src/<module>/            # implementation + private headers (never installed)
 │   ├── detection/yolo/      # letterbox preprocess + YOLO decode/NMS shared by both detectors
-│   └── tracking/{common,botsort}/   # shared SORT building blocks, one folder per tracker
+│   └── tracking/{common,botsort,tracktrack}/   # shared SORT building blocks, one folder per tracker
 ├── apps/mot_video/          # CLI
 ├── tests/<module>/          # CTest suites (tracker contract test covers every tracker)
 ├── benchmarks/
@@ -31,14 +31,22 @@ cpp/
 All code is in namespace `mot`. To add a tracker, follow
 [`cpp/src/tracking/README.md`](../cpp/src/tracking/README.md).
 
-BoT-SORT: GMC state transforms and removed-track bookkeeping follow the vendored
-Ultralytics 8.4.157 implementation; assignment uses the C++ Hungarian solver.
+TrackTrack (`tracker.type: tracktrack`) ports Ultralytics' `TRACKTRACK` without ReID:
+HMIoU + confidence + corner-angle cost, iterative mutual-nearest assignment over high,
+low and *recovered* detections, and track-aware initialization. Recovered detections are
+boxes the detector's NMS dropped that a looser NMS (IoU 0.95) keeps; `Pipeline` asks the
+detector for them (`IDetector::detectWithRecovered`) only when the tracker uses them
+(`ITracker::usesRecoveredDetections`), so BoT-SORT never pays for the extra NMS pass.
+With `gmc_method: none` its outputs match Ultralytics frame by frame
+(`tests/tracking/test_tracktrack.cpp` replays sequences recorded from it).
 
-GMC applies the same affine rotation block to `(x, y)`, `(w, h)` and both
-velocity pairs, with translation applied only to the center. This can produce
-signed sizes for large rotations. Finite signed sizes and inverted corners are
-preserved in Track::bbox(), prediction, Kalman updates and TrackOutput, without
-substituting a previous box or repairing dimensions. Input detections still require
+BoT-SORT: removed-track bookkeeping follows the vendored Ultralytics 8.4.157
+implementation; assignment uses the C++ Hungarian solver.
+
+GMC (both trackers) follows current Ultralytics `multi_gmc`: the center `(x, y)` and its
+velocity follow the signed affine rotation block R, translation applies only to the center,
+and the size `(w, h)` and its velocity follow `abs(R)`, i.e. the box enclosing the rotated
+box. Sizes therefore never flip sign, even for large rotations. Input detections require
 positive width and height. Invalid/non-finite warp rollback remains in place.
 Tracker IoU follows Ultralytics matching.iou_distance/bbox_ioa: float32
 coordinates and arithmetic, intersection dimensions clipped at zero, signed box
@@ -171,10 +179,11 @@ and invalid settings fail with a message containing the config path.
 draws class names with track IDs. Missing class names fall back to `Class <id>`.
 The CLI uses it for annotated video output.
 
-All BoT-SORT flags are exposed by the CLI (they are rejected for other trackers): `--track-high-thresh`,
-`--track-low-thresh`, `--new-track-thresh`, `--track-buffer`,
-`--match-thresh`, `--fuse-score`/`--no-fuse-score`, `--gmc-method`,
-`--gmc-downscale` and `--class-ema-alpha`.
+Tracker flags shared by BoT-SORT and TrackTrack: `--track-high-thresh`,
+`--track-low-thresh`, `--new-track-thresh`, `--track-buffer`, `--match-thresh`,
+`--gmc-method` and `--gmc-downscale`. BoT-SORT only (rejected for other trackers):
+`--fuse-score`/`--no-fuse-score` and `--class-ema-alpha`. Other TrackTrack options
+are set in YAML (`tracker.tracktrack`, see `configs/default_config.yaml`).
 
 ## Using the library from another application
 
@@ -214,11 +223,17 @@ pipeline.setTracker(mot::createTracker(mot::defaultTrackerConfig("botsort")));
 ```
 
 Any detector can be used by implementing `mot::IDetector`
-(`detect(const cv::Mat&)` and `classNames()`), and trackers can be used on their own:
+(`detect(const cv::Mat&)` and `classNames()`; override `detectWithRecovered()` to feed
+TrackTrack recovered detections), and trackers can be used on their own:
 
 ```cpp
 auto tracker = mot::createTracker(mot::BoTSORTConfig{});
 auto tracks = tracker->update(detections, bgr_frame);
+
+auto tracktrack = mot::createTracker(mot::TrackTrackConfig{});
+std::vector<mot::Detection> recovered;
+auto dets = detector.detectWithRecovered(bgr_frame, recovered);
+auto tt_tracks = tracktrack->updateWithRecovered(dets, recovered, bgr_frame);
 ```
 
 Rendering (link `mot::visualization`):

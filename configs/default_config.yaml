@@ -34,3 +34,21 @@ tracker:
     gmc_downscale: 2
     # EMA weight on a track's class history (0 = class of the latest detection).
     class_ema_alpha: 0.9
+  # TrackTrack (set `type: tracktrack`; only the selected tracker's section is allowed).
+  # Defaults follow Ultralytics tracktrack.yaml; ReID is not supported.
+  # tracktrack:
+  #   track_high_thresh: 0.6
+  #   track_low_thresh: 0.25
+  #   new_track_thresh: 0.7   # min score to start a track (track-aware initialization)
+  #   track_buffer: 30
+  #   match_thresh: 0.7       # initial gate of the iterative assignment
+  #   lost_match_thr: 0.0     # relaxed rebind gate for still-lost tracks; 0 disables
+  #   conf_weight: 0.1
+  #   angle_weight: 0.05
+  #   penalty_p: 0.2          # cost penalty for low-confidence detections
+  #   penalty_q: 0.4          # cost penalty for recovered (loose-NMS) detections
+  #   reduce_step: 0.05
+  #   tai_thr: 0.55
+  #   min_track_len: 3
+  #   gmc_method: "sparseOptFlow"
+  #   gmc_downscale: 2
