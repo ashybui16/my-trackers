@@ -65,9 +65,9 @@ std::string backends() {
                                 "  --track-high-thresh F --track-low-thresh F --new-track-thresh F\n"
                                 "  --track-buffer N --match-thresh F\n"
                                 "  --gmc-method sparseOptFlow|none --gmc-downscale N\n"
+                                "  --class-ema-alpha F\n"
                                 "BoT-SORT only (--tracker botsort):\n"
                                 "  --fuse-score | --no-fuse-score\n"
-                                "  --class-ema-alpha F\n"
                                 "Other TrackTrack options are set in YAML (tracker.tracktrack).\n"
                                 "  --overwrite");
 }
@@ -207,7 +207,8 @@ Options parseOptions(int argc, char** argv) {
             const auto value = parseInt(argument, nextValue(index, argc, argv, argument));
             anyTracker([&](auto& config) { config.gmc_downscale = value; });
         } else if (argument == "--class-ema-alpha") {
-            botsort(argument).class_ema_alpha = parseDouble(argument, nextValue(index, argc, argv, argument));
+            const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
+            anyTracker([&](auto& config) { config.class_ema_alpha = value; });
         } else {
             usageError("unknown option '" + argument + "'");
         }

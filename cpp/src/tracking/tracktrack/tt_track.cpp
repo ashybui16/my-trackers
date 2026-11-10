@@ -24,11 +24,11 @@ bool finiteMatrix(const cv::Mat& matrix) {
 
 }
 
-TTTrack::TTTrack(const Detection& detection, int detection_index, int min_track_len)
+TTTrack::TTTrack(const Detection& detection, int detection_index, int min_track_len, double class_ema_alpha)
     : initial_bbox_(detection.bbox_xyxy),
       score_(detection.score),
       prev_score_(detection.score),
-      class_id_(detection.class_id),
+      class_(detection, class_ema_alpha),
       detection_index_(detection_index),
       min_track_len_(min_track_len) {}
 
@@ -153,7 +153,7 @@ void TTTrack::update(const TTTrack& detection_track, int frame_id) {
         state_ = TrackState::Tracked;
         is_activated_ = true;
     }
-    class_id_ = detection_track.class_id_;
+    class_.update(detection_track.class_);
     detection_index_ = detection_track.detection_index_;
 }
 
@@ -166,7 +166,7 @@ void TTTrack::reActivate(const TTTrack& detection_track, int frame_id) {
     state_ = TrackState::Tracked;
     is_activated_ = true;
     frame_id_ = frame_id;
-    class_id_ = detection_track.class_id_;
+    class_.update(detection_track.class_);
     detection_index_ = detection_track.detection_index_;
 }
 

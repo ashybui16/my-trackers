@@ -167,6 +167,45 @@ void testRecoveredDetections() {
     expect(tracker.usesRecoveredDetections(), "TrackTrack requests recovered detections");
 }
 
+void testClassEma() {
+    auto config = noGmc();
+    config.min_track_len = 1;
+    const auto run = [&](double alpha) {
+        config.class_ema_alpha = alpha;
+        mot::TrackTrack tracker(config);
+        std::vector<mot::TrackOutput> outputs;
+        for (int frame = 0; frame < 6; ++frame) {
+            outputs = tracker.update({{{100, 100, 150, 200}, 0.9, frame < 5 ? 4 : 3}});
+        }
+        expect(outputs.size() == 1 && outputs[0].track_id == 1, "class EMA: one continuous track");
+        return outputs[0].class_id;
+    };
+    expect(run(0.9) == 4, "class EMA: resists a single flip");
+    expect(run(0.0) == 3, "class EMA: alpha=0 follows the latest detection");
+
+    const mot::Detection first{{0.0, 0.0, 10.0, 10.0}, 0.6, 1, {0.2F, 0.6F, 0.1F}};
+    const mot::Detection second{{0.0, 0.0, 10.0, 10.0}, 0.8, 0, {0.8F, 0.1F, 0.0F}};
+    mot::KalmanFilterXYWH kalman;
+    mot::TTTrack track(first, -1, 1, 0.5);
+    track.activate(kalman, 1, 1);
+    track.update(mot::TTTrack(second, -1, 1, 0.5), 2);
+    expect(track.classVector().size() == 3, "class EMA: vector size");
+    expectNear(track.classVector()[0], 0.5, 1e-6, "class EMA: vector[0]");
+    expectNear(track.classVector()[1], 0.35, 1e-6, "class EMA: vector[1]");
+    expect(track.classId() == 0, "class EMA: argmax of blended vector");
+
+    for (double bad : {1.0, -0.1}) {
+        config.class_ema_alpha = bad;
+        bool rejected = false;
+        try {
+            config.validate();
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        expect(rejected, "class EMA: invalid alpha accepted");
+    }
+}
+
 std::vector<double> reals(const cv::FileNode& node) {
     std::vector<double> values;
     for (const auto& item : node) values.push_back(static_cast<double>(item));
@@ -243,6 +282,7 @@ int main(int argc, char** argv) {
         testVelocityAndHistory();
         testLifecycle();
         testRecoveredDetections();
+        testClassEma();
         if (argc > 1) testUltralyticsParity(argv[1]);
         std::cout << "TrackTrack tests passed\n";
         return 0;

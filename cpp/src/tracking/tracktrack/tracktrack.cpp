@@ -51,20 +51,20 @@ std::vector<TrackOutput> TrackTrack::updateWithRecovered(const std::vector<Detec
     all_dets.reserve(detections.size() + recovered.size());
     for (std::size_t index = 0; index < detections.size(); ++index) {
         if (detections[index].score >= config_.track_high_thresh) {
-            all_dets.push_back(std::make_shared<TTTrack>(detections[index], static_cast<int>(index), config_.min_track_len));
+            all_dets.push_back(std::make_shared<TTTrack>(detections[index], static_cast<int>(index), config_.min_track_len, config_.class_ema_alpha));
         }
     }
     const std::size_t n_high = all_dets.size();
     for (std::size_t index = 0; index < detections.size(); ++index) {
         const double score = detections[index].score;
         if (score > config_.track_low_thresh && score < config_.track_high_thresh) {
-            all_dets.push_back(std::make_shared<TTTrack>(detections[index], static_cast<int>(index), config_.min_track_len));
+            all_dets.push_back(std::make_shared<TTTrack>(detections[index], static_cast<int>(index), config_.min_track_len, config_.class_ema_alpha));
         }
     }
     const std::size_t n_high_low = all_dets.size();
     for (const auto& detection : recovered) {
         if (detection.score > config_.track_high_thresh) {
-            all_dets.push_back(std::make_shared<TTTrack>(detection, -1, config_.min_track_len));
+            all_dets.push_back(std::make_shared<TTTrack>(detection, -1, config_.min_track_len, config_.class_ema_alpha));
         }
     }
 

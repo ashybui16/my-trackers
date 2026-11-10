@@ -3,6 +3,7 @@
 #include "tracking/common/geometry.hpp"
 #include "tracking/common/kalman_filter.hpp"
 #include "mot/core/types.hpp"
+#include "tracking/common/class_ema.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -43,8 +44,8 @@ public:
 
     int trackId() const { return track_id_; }
     double score() const { return score_; }
-    int classId() const { return class_id_; }
-    const std::vector<double>& classVector() const { return class_vector_; }
+    int classId() const { return class_.classId(); }
+    const std::vector<double>& classVector() const { return class_.vector(); }
     int detectionIndex() const { return detection_index_; }
     bool isActivated() const { return is_activated_; }
     TrackState state() const { return state_; }
@@ -54,8 +55,6 @@ public:
     int age() const { return frame_id_ - start_frame_; }
 
 private:
-    void updateClass(const Track& detection_track);
-
     BBox initial_bbox_{};
     KalmanFilterXYWH* kalman_filter_{nullptr};
     cv::Mat mean_;
@@ -64,9 +63,7 @@ private:
     bool is_activated_{false};
     TrackState state_{TrackState::New};
     double score_{0.0};
-    int class_id_{0};
-    std::vector<double> class_vector_;
-    double class_ema_alpha_{0.0};
+    ClassEma class_;
     int detection_index_{-1};
     int tracklet_len_{0};
     int frame_id_{0};

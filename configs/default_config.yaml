@@ -52,3 +52,4 @@ tracker:
   #   min_track_len: 3
   #   gmc_method: "sparseOptFlow"
   #   gmc_downscale: 2
+  #   class_ema_alpha: 0.9    # EMA weight on class history (0 = latest detection)

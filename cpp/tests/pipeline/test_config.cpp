@@ -93,11 +93,12 @@ tracker:
 tracker:
   type: tracktrack
   tracktrack: { track_buffer: 50, lost_match_thr: 0.9, penalty_q: 0.3, tai_thr: 0.5, min_track_len: 2,
-                gmc_method: "none" }
+                gmc_method: "none", class_ema_alpha: 0.7 }
 )");
         const auto& tt = std::get<mot::TrackTrackConfig>(tracktrack.tracker);
         expect(tt.track_buffer == 50 && tt.lost_match_thr == 0.9 && tt.penalty_q == 0.3 && tt.tai_thr == 0.5 &&
-               tt.min_track_len == 2 && tt.gmc_method == "none" && tt.match_thresh == 0.7,
+               tt.min_track_len == 2 && tt.gmc_method == "none" && tt.match_thresh == 0.7 &&
+               tt.class_ema_alpha == 0.7,
                "tracktrack section");
         {
             std::ofstream names(directory / "names.yaml");
@@ -143,6 +144,7 @@ tracker:
         reject("detector: {}\ntracker: { type: botsort, botsort: { typo: 1 } }\n");
         reject("detector: {}\ntracker: { type: tracktrack, tracktrack: { fuse_score: true } }\n");
         reject("detector: {}\ntracker: { type: tracktrack, tracktrack: { min_track_len: -1 } }\n");
+        reject("detector: {}\ntracker: { type: tracktrack, tracktrack: { class_ema_alpha: 1.0 } }\n");
         reject("detector: {}\ntracker: { type: botsort, track_buffer: 3 }\n");
         reject("detector: { class_names: missing.yaml }\ntracker: {}\n");
         reject("detector: { class_count: 1, class_names: [\"a\", \"b\"] }\ntracker: {}\n");

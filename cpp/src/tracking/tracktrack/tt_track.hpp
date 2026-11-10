@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mot/core/types.hpp"
+#include "tracking/common/class_ema.hpp"
 #include "tracking/common/kalman_filter.hpp"
 #include "tracking/common/track.hpp"
 
@@ -8,6 +9,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 namespace mot {
 
@@ -18,7 +20,8 @@ public:
     static constexpr int kDeltaT = 3;
     using CornerVelocity = std::array<std::array<float, 2>, 4>;  // (dx, dy) for corners LT, LB, RT, RB; float32 as in Ultralytics.
 
-    TTTrack(const Detection& detection, int detection_index, int min_track_len);
+    // class_ema_alpha: EMA weight on class history; 0 makes the class follow the latest match.
+    TTTrack(const Detection& detection, int detection_index, int min_track_len, double class_ema_alpha = 0.0);
 
     void activate(KalmanFilterXYWH& kalman_filter, int frame_id, int track_id);
     void predict();
@@ -35,7 +38,8 @@ public:
     int trackId() const { return track_id_; }
     double score() const { return score_; }
     double prevScore() const { return prev_score_; }
-    int classId() const { return class_id_; }
+    int classId() const { return class_.classId(); }
+    const std::vector<double>& classVector() const { return class_.vector(); }
     int detectionIndex() const { return detection_index_; }
     bool isActivated() const { return is_activated_; }
     TrackState state() const { return state_; }
@@ -63,7 +67,7 @@ private:
     TrackState state_{TrackState::New};
     double score_{0.0};
     double prev_score_{0.0};
-    int class_id_{0};
+    ClassEma class_;
     int detection_index_{-1};
     int min_track_len_{3};
     int tracklet_len_{0};

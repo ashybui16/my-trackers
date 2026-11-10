@@ -2,6 +2,7 @@ mot_add_library(mot_tracking ALIAS mot::tracking
     SOURCES
         factory.cpp
         common/assignment.cpp
+        common/class_ema.cpp
         common/association.cpp
         common/geometry.cpp
         common/gmc.cpp
