@@ -53,6 +53,16 @@ void checkTracker(std::string_view type) {
         }
     }
     expect(last[0].track_id != last[1].track_id, name + ": distinct objects get distinct IDs");
+    for (std::size_t frame = 0; frame < first.size(); ++frame) {
+        const auto detections = frameDetections(static_cast<int>(frame));
+        for (const auto& track : first[frame]) {
+            const int index = track.detection_index;
+            expect(index >= 0 && index < static_cast<int>(detections.size()),
+                   name + ": detection_index points into this frame's input");
+            expect(detections[static_cast<std::size_t>(index)].class_id == track.class_id,
+                   name + ": detection_index maps the track to its own detection");
+        }
+    }
 
     tracker->reset();
     const auto again = runSequence(*tracker, 12, image);

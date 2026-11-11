@@ -181,7 +181,7 @@ The CLI uses it for annotated video output.
 
 Tracker flags shared by BoT-SORT and TrackTrack: `--track-high-thresh`,
 `--track-low-thresh`, `--new-track-thresh`, `--track-buffer`, `--match-thresh`,
-`--gmc-method`, `--gmc-downscale` and `--class-ema-alpha`. BoT-SORT only (rejected for
+`--gmc-method` and `--class-ema-alpha` (GMC always downscales 2×, as in Ultralytics). BoT-SORT only (rejected for
 other trackers): `--fuse-score`/`--no-fuse-score`. Other TrackTrack options
 are set in YAML (`tracker.tracktrack`, see `configs/default_config.yaml`).
 

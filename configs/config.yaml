@@ -31,6 +31,5 @@ tracker:
     match_thresh: 0.80
     fuse_score: true
     gmc_method: "sparseOptFlow"
-    gmc_downscale: 2
     # EMA weight on a track's class history (0 = class of the latest detection).
     class_ema_alpha: 0.9

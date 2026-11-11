@@ -16,7 +16,7 @@ using tracktrack::iterativeAssociate;
 using tracktrack::trackAwareNms;
 
 TrackTrack::TrackTrack(TrackTrackConfig config)
-    : config_(std::move(config)), gmc_(config_.gmc_method, config_.gmc_downscale) {
+    : config_(std::move(config)), gmc_(config_.gmc_method) {
     config_.validate();
 }
 
@@ -197,7 +197,8 @@ std::vector<TrackOutput> TrackTrack::updateWithRecovered(const std::vector<Detec
     outputs.reserve(tracked_tracks_.size());
     for (const auto& track : tracked_tracks_) {
         if (track->isActivated() && track->frameId() == frame_id_) {
-            outputs.emplace_back(track->trackId(), track->bbox(), track->score(), track->classId());
+            outputs.emplace_back(track->trackId(), track->bbox(), track->score(), track->classId(),
+                                 track->detectionIndex());
         }
     }
     return outputs;

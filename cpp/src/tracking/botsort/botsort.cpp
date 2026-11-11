@@ -7,7 +7,7 @@
 namespace mot {
 
 BoTSORT::BoTSORT(BoTSORTConfig config)
-    : config_(std::move(config)), gmc_(config_.gmc_method, config_.gmc_downscale) {
+    : config_(std::move(config)), gmc_(config_.gmc_method) {
     config_.validate();
 }
 
@@ -234,7 +234,8 @@ std::vector<TrackOutput> BoTSORT::currentOutputs() const {
         if (track->state() != TrackState::Tracked || !track->isActivated()) {
             continue;
         }
-        outputs.emplace_back(track->trackId(), track->bbox(), track->score(), track->classId());
+        outputs.emplace_back(track->trackId(), track->bbox(), track->score(), track->classId(),
+                                 track->detectionIndex());
     }
     return outputs;
 }

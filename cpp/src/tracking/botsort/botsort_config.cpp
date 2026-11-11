@@ -29,9 +29,6 @@ void BoTSORTConfig::validate() const {
     if (gmc_method != "sparseOptFlow" && gmc_method != "none") {
         throw std::invalid_argument("gmc_method must be 'sparseOptFlow' or 'none'");
     }
-    if (gmc_downscale < 1) {
-        throw std::invalid_argument("gmc_downscale must be at least 1");
-    }
     validateClassEmaAlpha(class_ema_alpha);
 }
 

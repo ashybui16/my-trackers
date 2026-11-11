@@ -28,9 +28,11 @@ struct TrackOutput {
     BBox bbox_xyxy{};
     double score{0.0};
     int class_id{0};
+    // Index of the matched detection in this frame's input list (Ultralytics `idx`); -1 if unknown.
+    int detection_index{-1};
 
     TrackOutput() = default;
-    TrackOutput(int id, const BBox& bbox, double confidence, int class_value);
+    TrackOutput(int id, const BBox& bbox, double confidence, int class_value, int detection_value = -1);
 };
 
 }

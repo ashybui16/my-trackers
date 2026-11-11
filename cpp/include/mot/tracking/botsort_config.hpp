@@ -15,7 +15,6 @@ struct BoTSORTConfig {
     double match_thresh{0.80};
     bool fuse_score{true};
     std::string gmc_method{"sparseOptFlow"};
-    int gmc_downscale{2};
     // EMA weight on a track's class history: v = a*v + (1-a)*detection_scores. 0 = latest detection.
     double class_ema_alpha{0.0};
 

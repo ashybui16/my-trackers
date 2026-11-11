@@ -64,7 +64,7 @@ std::string backends() {
                                 "Trackers (botsort, tracktrack):\n"
                                 "  --track-high-thresh F --track-low-thresh F --new-track-thresh F\n"
                                 "  --track-buffer N --match-thresh F\n"
-                                "  --gmc-method sparseOptFlow|none --gmc-downscale N\n"
+                                "  --gmc-method sparseOptFlow|none\n"
                                 "  --class-ema-alpha F\n"
                                 "BoT-SORT only (--tracker botsort):\n"
                                 "  --fuse-score | --no-fuse-score\n"
@@ -124,7 +124,7 @@ Options parseOptions(int argc, char** argv) {
                       << "CLI overrides: --model (alias --engine), --class-count, --input-width, --input-height,\n"
                       << "  --conf, --iou, --max-det, --track-high-thresh, --track-low-thresh,\n"
                       << "  --new-track-thresh, --track-buffer, --match-thresh, --fuse-score,\n"
-                      << "  --no-fuse-score, --gmc-method, --gmc-downscale, --class-ema-alpha\n"
+                      << "  --no-fuse-score, --gmc-method, --class-ema-alpha\n"
                       << "Output: --output-dir DIR, --overwrite\n";
             std::exit(0);
         }
@@ -203,9 +203,6 @@ Options parseOptions(int argc, char** argv) {
         } else if (argument == "--gmc-method") {
             const auto value = nextValue(index, argc, argv, argument);
             anyTracker([&](auto& config) { config.gmc_method = value; });
-        } else if (argument == "--gmc-downscale") {
-            const auto value = parseInt(argument, nextValue(index, argc, argv, argument));
-            anyTracker([&](auto& config) { config.gmc_downscale = value; });
         } else if (argument == "--class-ema-alpha") {
             const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
             anyTracker([&](auto& config) { config.class_ema_alpha = value; });

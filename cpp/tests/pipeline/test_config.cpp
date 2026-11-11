@@ -64,7 +64,6 @@ tracker:
   match_thresh: 0.9
   fuse_score: false
   gmc_method: "none"
-  gmc_downscale: 4
   class_ema_alpha: 0.8
 )");
         expect(custom.model_path == (directory / "custom.onnx").string(), "relative model");
@@ -76,7 +75,7 @@ tracker:
         expect(bot.track_high_thresh == 0.5 && bot.track_low_thresh == 0.2 &&
                bot.new_track_thresh == 0.6 && bot.track_buffer == 75 &&
                bot.match_thresh == 0.9 && !bot.fuse_score &&
-               bot.gmc_method == "none" && bot.gmc_downscale == 4 && bot.class_ema_alpha == 0.8,
+               bot.gmc_method == "none" && bot.class_ema_alpha == 0.8,
                "all legacy flat tracker overrides");
         const auto typed = load(R"(detector: { class_count: 3, class_names: ["a", "b"] }
 tracker:
