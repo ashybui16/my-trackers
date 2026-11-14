@@ -15,8 +15,8 @@ using tracktrack::costMatrix;
 using tracktrack::iterativeAssociate;
 using tracktrack::trackAwareNms;
 
-TrackTrack::TrackTrack(TrackTrackConfig config)
-    : config_(std::move(config)), gmc_(config_.gmc_method) {
+TrackTrack::TrackTrack(TrackTrackConfig config, std::unique_ptr<IKeypointGmcModel> gmc_model)
+    : config_(std::move(config)), gmc_(config_.gmc_method, 2, std::move(gmc_model)) {
     config_.validate();
 }
 
@@ -37,8 +37,8 @@ std::vector<TrackOutput> TrackTrack::update(const std::vector<Detection>& detect
 std::vector<TrackOutput> TrackTrack::updateWithRecovered(const std::vector<Detection>& detections,
                                                          const std::vector<Detection>& recovered,
                                                          const cv::Mat& frame) {
-    if (config_.gmc_method == "sparseOptFlow" && frame.empty()) {
-        throw std::invalid_argument("frame is required when gmc_method='sparseOptFlow'");
+    if (config_.gmc_method != "none" && frame.empty()) {
+        throw std::invalid_argument("frame is required when gmc_method='" + config_.gmc_method + "'");
     }
     ++frame_id_;
     std::vector<TTTrackPtr> activated;
@@ -77,7 +77,7 @@ std::vector<TrackOutput> TrackTrack::updateWithRecovered(const std::vector<Detec
     const std::vector<TTTrackPtr> pool = jointTracks<TTTrack>(confirmed, lost_tracks_);
 
     // GMC before prediction (unlike BoT-SORT).
-    if (config_.gmc_method == "sparseOptFlow") {
+    if (config_.gmc_method != "none") {
         const cv::Mat warp = gmc_.apply(frame);
         applyGMC<TTTrack>(pool, warp);
         applyGMC<TTTrack>(unconfirmed, warp);

@@ -6,8 +6,8 @@
 
 namespace mot {
 
-BoTSORT::BoTSORT(BoTSORTConfig config)
-    : config_(std::move(config)), gmc_(config_.gmc_method) {
+BoTSORT::BoTSORT(BoTSORTConfig config, std::unique_ptr<IKeypointGmcModel> gmc_model)
+    : config_(std::move(config)), gmc_(config_.gmc_method, 2, std::move(gmc_model)) {
     config_.validate();
 }
 
@@ -23,8 +23,8 @@ void BoTSORT::reset() {
 
 std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detections,
                                          const cv::Mat& frame) {
-    if (config_.gmc_method == "sparseOptFlow" && frame.empty()) {
-        throw std::invalid_argument("frame is required when gmc_method='sparseOptFlow'");
+    if (config_.gmc_method != "none" && frame.empty()) {
+        throw std::invalid_argument("frame is required when gmc_method='" + config_.gmc_method + "'");
     }
     ++frame_id_;
     std::vector<TrackPtr> high_detections;
@@ -62,7 +62,7 @@ std::vector<TrackOutput> BoTSORT::update(const std::vector<Detection>& detection
     for (const auto& track : track_pool) {
         track->predict();
     }
-    if (config_.gmc_method == "sparseOptFlow") {
+    if (config_.gmc_method != "none") {
         const cv::Mat warp = gmc_.apply(frame);
         applyGMC(track_pool, warp);
         applyGMC(unconfirmed, warp);

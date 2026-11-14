@@ -31,6 +31,10 @@ tracker:
     match_thresh: 0.80
     fuse_score: true
     gmc_method: "sparseOptFlow"
+    # gmc_method: "dpoint" uses learned keypoints; both models must be .onnx (ONNX Runtime) or
+    # .engine (TensorRT, built with trtexec; see docs/CPP.md).
+    # gmc_dpoint_model: "../weights/dpoint_jetson_static.onnx"
+    # gmc_matcher_model: "../weights/matcher_jetson_static.onnx"
     # EMA weight on a track's class history (0 = class of the latest detection).
     class_ema_alpha: 0.9
   # TrackTrack (set `type: tracktrack`; only the selected tracker's section is allowed).
@@ -49,5 +53,5 @@ tracker:
   #   reduce_step: 0.05
   #   tai_thr: 0.55
   #   min_track_len: 3
-  #   gmc_method: "sparseOptFlow"
+  #   gmc_method: "sparseOptFlow"   # or "dpoint" with gmc_dpoint_model / gmc_matcher_model
   #   class_ema_alpha: 0.9    # EMA weight on class history (0 = latest detection)

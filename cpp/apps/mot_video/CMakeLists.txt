@@ -1,5 +1,6 @@
 add_executable(mot_video main.cpp)
 target_link_libraries(mot_video PRIVATE mot::pipeline mot::visualization opencv_videoio)
+target_include_directories(mot_video PRIVATE ${MOT_SOURCE_DIR}/apps/common)
 if(MOT_WITH_TENSORRT)
     target_link_libraries(mot_video PRIVATE mot::tensorrt)
     target_compile_definitions(mot_video PRIVATE MOT_HAS_TENSORRT)

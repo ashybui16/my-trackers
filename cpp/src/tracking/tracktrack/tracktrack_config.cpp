@@ -38,8 +38,8 @@ void TrackTrackConfig::validate() const {
     if (min_track_len < 0) {
         throw std::invalid_argument("min_track_len must be non-negative");
     }
-    if (gmc_method != "sparseOptFlow" && gmc_method != "none") {
-        throw std::invalid_argument("gmc_method must be 'sparseOptFlow' or 'none'");
+    if (gmc_method != "sparseOptFlow" && gmc_method != "dpoint" && gmc_method != "none") {
+        throw std::invalid_argument("gmc_method must be 'sparseOptFlow', 'dpoint' or 'none'");
     }
     validateClassEmaAlpha(class_ema_alpha);
 }

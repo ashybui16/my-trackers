@@ -7,6 +7,8 @@
 
 #include <opencv2/core.hpp>
 
+#include <memory>
+
 #include <utility>
 #include <vector>
 
@@ -14,7 +16,8 @@ namespace mot {
 
 class BoTSORT final : public ITracker {
 public:
-    explicit BoTSORT(BoTSORTConfig config = {});
+    // gmc_model is required when config.gmc_method == "dpoint" and ignored otherwise.
+    explicit BoTSORT(BoTSORTConfig config = {}, std::unique_ptr<IKeypointGmcModel> gmc_model = nullptr);
 
     std::vector<TrackOutput> update(const std::vector<Detection>& detections,
                                     const cv::Mat& frame = cv::Mat()) override;

@@ -92,9 +92,10 @@ Detection có `score <= track_low_thresh` bị bỏ. `detection_index` của hig
 
 Khác BoT-SORT, TrackTrack áp GMC **trước** Kalman predict:
 
-1. **GMC** ([dòng 80-84](tracktrack.cpp#L80-L84)), chỉ chạy khi `gmc_method == "sparseOptFlow"`:
-   `gmc_.apply(frame)` ([gmc.cpp:62-158](../common/gmc.cpp#L62-L158)) ước lượng ma trận affine giữa hai
-   frame (sparse optical flow, ảnh thu nhỏ cố định 2×), rồi `TTTrack::applyWarp`
+1. **GMC** ([dòng 80-84](tracktrack.cpp#L80-L84)), chạy khi `gmc_method != "none"`:
+   `gmc_.apply(frame)` ([gmc.cpp:69-83](../common/gmc.cpp#L69-L83)) ước lượng ma trận affine giữa hai
+   frame (`sparseOptFlow`: sparse optical flow trên ảnh thu nhỏ 2×; `dpoint`: keypoint dpoint + matcher,
+   xem [BoT-SORT pipeline](../botsort/pipeline.md)), rồi `TTTrack::applyWarp`
    ([tt_track.cpp:96-113](tt_track.cpp#L96-L113)) → `warpXywhState`
    ([geometry.cpp:92-135](../common/geometry.cpp#L92-L135)) áp warp lên mean và covariance của `pool` và
    `unconfirmed`. Nếu kết quả không hữu hạn thì giữ nguyên state cũ.
@@ -285,7 +286,8 @@ detection sẽ có `detection_index = -1`.
 | `penalty_q` | 0.4 | Penalty cho detection recovered ([tracktrack.cpp:94](tracktrack.cpp#L94)) |
 | `tai_thr` | 0.55 | IoU của track-aware NMS ([tracktrack_detail.cpp:200](tracktrack_detail.cpp#L200)) |
 | `min_track_len` | 3 | Số hit để New → Tracked, 0/1 = xác nhận ngay ([tt_track.cpp:74](tt_track.cpp#L74), [152](tt_track.cpp#L152)) |
-| `gmc_method` | `sparseOptFlow` | `sparseOptFlow` hoặc `none` ([tracktrack.cpp:80](tracktrack.cpp#L80)) |
+| `gmc_method` | `sparseOptFlow` | `sparseOptFlow`, `dpoint` hoặc `none` ([tracktrack.cpp:80](tracktrack.cpp#L80)) |
+| `gmc_dpoint_model`, `gmc_matcher_model` | rỗng | Model dpoint/matcher cho `dpoint` (`.onnx` → ONNX Runtime, `.engine` → TensorRT); app nạp chúng |
 | `class_ema_alpha` | 0.0 | EMA của vector class, 0 = theo detection mới nhất ([class_ema.cpp:33](../common/class_ema.cpp#L33)) |
 
 Các giá trị cố định trong code: IoU tối thiểu 0.1 của cost

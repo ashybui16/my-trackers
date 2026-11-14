@@ -11,12 +11,14 @@
 namespace mot {
 namespace {
 
-std::unique_ptr<ITracker> makeTracker(const BoTSORTConfig& config) {
-    return std::make_unique<BoTSORT>(config);
+std::unique_ptr<ITracker> makeTracker(const BoTSORTConfig& config,
+                                      std::unique_ptr<IKeypointGmcModel> gmc_model) {
+    return std::make_unique<BoTSORT>(config, std::move(gmc_model));
 }
 
-std::unique_ptr<ITracker> makeTracker(const TrackTrackConfig& config) {
-    return std::make_unique<TrackTrack>(config);
+std::unique_ptr<ITracker> makeTracker(const TrackTrackConfig& config,
+                                      std::unique_ptr<IKeypointGmcModel> gmc_model) {
+    return std::make_unique<TrackTrack>(config, std::move(gmc_model));
 }
 
 template <std::size_t... I>
@@ -60,9 +62,16 @@ std::vector<std::string_view> availableTrackers() {
     return typeNames(std::make_index_sequence<std::variant_size_v<TrackerConfig>>{});
 }
 
-std::unique_ptr<ITracker> createTracker(const TrackerConfig& config) {
+std::unique_ptr<ITracker> createTracker(const TrackerConfig& config,
+                                        std::unique_ptr<IKeypointGmcModel> gmc_model) {
     validate(config);
-    return std::visit([](const auto& value) { return makeTracker(value); }, config);
+    std::visit([&](const auto& value) {
+        if (value.gmc_method == "dpoint" && !gmc_model) {
+            throw std::invalid_argument("gmc_method 'dpoint' needs a keypoint GMC model "
+                                        "(pass one to createTracker)");
+        }
+    }, config);
+    return std::visit([&](const auto& value) { return makeTracker(value, std::move(gmc_model)); }, config);
 }
 
 }

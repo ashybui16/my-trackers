@@ -1,6 +1,7 @@
 if(MOT_WITH_TENSORRT OR MOT_WITH_ONNXRUNTIME)
     add_executable(mot_benchmark mot_benchmark.cpp)
     target_link_libraries(mot_benchmark PRIVATE mot::pipeline opencv_imgcodecs)
+    target_include_directories(mot_benchmark PRIVATE ${MOT_SOURCE_DIR}/apps/common)
     if(MOT_WITH_TENSORRT)
         target_link_libraries(mot_benchmark PRIVATE mot::tensorrt)
         target_compile_definitions(mot_benchmark PRIVATE MOT_HAS_TENSORRT)

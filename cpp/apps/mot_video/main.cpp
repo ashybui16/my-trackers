@@ -7,6 +7,7 @@
 #include "mot/onnxruntime/detector.hpp"
 #endif
 #include "mot/tracking/factory.hpp"
+#include "gmc_model_factory.hpp"
 #include "mot/visualization/annotator.hpp"
 
 #include <opencv2/videoio.hpp>
@@ -64,7 +65,8 @@ std::string backends() {
                                 "Trackers (botsort, tracktrack):\n"
                                 "  --track-high-thresh F --track-low-thresh F --new-track-thresh F\n"
                                 "  --track-buffer N --match-thresh F\n"
-                                "  --gmc-method sparseOptFlow|none\n"
+                                "  --gmc-method sparseOptFlow|dpoint|none\n"
+                                "  --gmc-dpoint MODEL --gmc-matcher MODEL   dpoint GMC models (.onnx or .engine)\n"
                                 "  --class-ema-alpha F\n"
                                 "BoT-SORT only (--tracker botsort):\n"
                                 "  --fuse-score | --no-fuse-score\n"
@@ -203,6 +205,12 @@ Options parseOptions(int argc, char** argv) {
         } else if (argument == "--gmc-method") {
             const auto value = nextValue(index, argc, argv, argument);
             anyTracker([&](auto& config) { config.gmc_method = value; });
+        } else if (argument == "--gmc-dpoint") {
+            const auto value = nextValue(index, argc, argv, argument);
+            anyTracker([&](auto& config) { config.gmc_dpoint_model = value; });
+        } else if (argument == "--gmc-matcher") {
+            const auto value = nextValue(index, argc, argv, argument);
+            anyTracker([&](auto& config) { config.gmc_matcher_model = value; });
         } else if (argument == "--class-ema-alpha") {
             const auto value = parseDouble(argument, nextValue(index, argc, argv, argument));
             anyTracker([&](auto& config) { config.class_ema_alpha = value; });
@@ -233,9 +241,7 @@ std::filesystem::path temporaryPath(const std::filesystem::path& directory,
 std::unique_ptr<mot::IDetector> makeDetector(const mot::PipelineConfig& config,
                                              const std::vector<std::string>& class_names,
                                              std::string& backend) {
-    std::string extension = std::filesystem::path(config.model_path).extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const std::string extension = mot::apps::lowerExtension(config.model_path);
     if (extension == ".onnx") {
 #if defined(MOT_HAS_ONNXRUNTIME)
         backend = "onnxruntime (CPU)";
@@ -292,11 +298,14 @@ int run(const Options& options) {
     auto class_names = options.config.class_names;
     class_names.resize(static_cast<std::size_t>(options.config.detector.class_count));
     std::string backend;
+    std::string gmc_backend;
+    auto gmc_model = mot::apps::makeGmcModel(options.config.tracker, gmc_backend);
     mot::Pipeline pipeline(makeDetector(options.config, class_names, backend),
-                           mot::createTracker(options.config.tracker));
+                           mot::createTracker(options.config.tracker, std::move(gmc_model)));
     mot::Annotator annotator(class_names);
     std::cout << "Detector: " << backend << '\n';
     std::cout << "Tracker: " << pipeline.tracker().name() << '\n';
+    if (!gmc_backend.empty()) std::cout << "GMC: dpoint (" << gmc_backend << ")\n";
 
     std::ofstream output_text(temporary_predictions);
     if (!output_text) {

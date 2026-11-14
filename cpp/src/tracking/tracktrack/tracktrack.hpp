@@ -8,6 +8,8 @@
 
 #include <opencv2/core.hpp>
 
+#include <memory>
+
 #include <vector>
 
 namespace mot {
@@ -17,7 +19,8 @@ namespace mot {
 // Port of Ultralytics' TRACKTRACK without ReID.
 class TrackTrack final : public ITracker {
 public:
-    explicit TrackTrack(TrackTrackConfig config = {});
+    // gmc_model is required when config.gmc_method == "dpoint" and ignored otherwise.
+    explicit TrackTrack(TrackTrackConfig config = {}, std::unique_ptr<IKeypointGmcModel> gmc_model = nullptr);
 
     std::vector<TrackOutput> update(const std::vector<Detection>& detections,
                                     const cv::Mat& frame = cv::Mat()) override;

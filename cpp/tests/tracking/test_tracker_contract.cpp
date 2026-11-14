@@ -1,4 +1,5 @@
 #include "mot/tracking/factory.hpp"
+#include "mot/tracking/keypoint_gmc.hpp"
 
 #include "support/check.hpp"
 
@@ -6,7 +7,9 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -80,6 +83,57 @@ void checkTracker(std::string_view type) {
     std::cout << "  " << name << ": ok\n";
 }
 
+// Fake keypoint model: every frame "moves" by +3 px in x; shared state counts calls.
+class ShiftModel final : public mot::IKeypointGmcModel {
+public:
+    explicit ShiftModel(int* calls) : calls_(calls) {}
+    cv::Size inputSize() const override { return {64, 32}; }
+    bool extractAndMatch(const cv::Mat& image, std::vector<cv::Point2f>& previous,
+                         std::vector<cv::Point2f>& current) override {
+        expect(image.type() == CV_32FC1 && image.size() == inputSize(), "fake model gets the model input");
+        ++*calls_;
+        previous.clear();
+        current.clear();
+        if (!has_previous_) {
+            has_previous_ = true;
+            return false;
+        }
+        for (int index = 0; index < 20; ++index) {
+            const cv::Point2f point(2.0F + 3.0F * static_cast<float>(index % 5), 2.0F + 6.0F * static_cast<float>(index / 5));
+            previous.push_back(point);
+            current.push_back(point + cv::Point2f(0.15F, 0.0F));   // 0.15 model px = 3 frame px at 1280 wide
+        }
+        return true;
+    }
+    void reset() override { has_previous_ = false; }
+
+private:
+    int* calls_;
+    bool has_previous_{false};
+};
+
+void checkDpointGmc(std::string_view type) {
+    const std::string name(type);
+    auto config = mot::defaultTrackerConfig(type);
+    std::visit([](auto& value) { value.gmc_method = "dpoint"; }, config);
+    bool rejected = false;
+    try { mot::createTracker(config); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    expect(rejected, name + ": dpoint GMC without a model is rejected");
+
+    int calls = 0;
+    auto tracker = mot::createTracker(config, std::make_unique<ShiftModel>(&calls));
+    const cv::Mat image(720, 1280, CV_8UC3, cv::Scalar(40, 80, 120));
+    rejected = false;
+    try { tracker->update({}); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    expect(rejected, name + ": dpoint GMC needs a frame");
+    const auto outputs = runSequence(*tracker, 12, image);
+    expect(calls == 12, name + ": dpoint model runs once per frame");
+    expect(outputs.back().size() == 2, name + ": dpoint GMC keeps tracking");
+    std::cout << "  " << name << " (dpoint GMC): ok\n";
+}
+
 }
 
 int main() {
@@ -91,6 +145,7 @@ int main() {
         catch (const std::invalid_argument&) { unknown_rejected = true; }
         expect(unknown_rejected, "unknown tracker type must be rejected");
         for (const auto type : trackers) checkTracker(type);
+        for (const auto type : trackers) checkDpointGmc(type);
         std::cout << "Tracker contract tests passed for " << trackers.size() << " tracker(s)\n";
         return 0;
     } catch (const std::exception& error) {

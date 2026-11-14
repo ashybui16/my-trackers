@@ -1,9 +1,11 @@
 #pragma once
 
 #include "mot/core/types.hpp"
+#include "mot/tracking/keypoint_gmc.hpp"
 
 #include <opencv2/core.hpp>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -11,7 +13,10 @@ namespace mot {
 
 class GMC {
 public:
-    GMC(std::string method = "sparseOptFlow", int downscale = 2);
+    // method: "sparseOptFlow", "dpoint" (needs `model`) or "none". `downscale` only applies to
+    // sparseOptFlow; dpoint resizes to the model input instead.
+    GMC(std::string method = "sparseOptFlow", int downscale = 2,
+        std::unique_ptr<IKeypointGmcModel> model = nullptr);
 
     cv::Mat apply(const cv::Mat& frame);
     void reset();
@@ -31,8 +36,15 @@ private:
     std::vector<cv::Point2f> keypoints_, matched_, previous_good_, current_good_;
     std::vector<unsigned char> status_;
     std::vector<float> error_;
+    std::unique_ptr<IKeypointGmcModel> model_;
+    cv::Mat model_input_, resized_buffer_;
 
     static cv::Mat identityWarp();
+    cv::Mat applySparseOptFlow(const cv::Mat& frame);
+    cv::Mat applyDpoint(const cv::Mat& frame);
+    // RANSAC partial affine prev -> cur; identity (with a warning) when it cannot be estimated.
+    static cv::Mat estimateWarp(const std::vector<cv::Point2f>& previous,
+                                const std::vector<cv::Point2f>& current, double translation_scale);
     cv::Mat toGray(const cv::Mat& frame);
     void remember(const cv::Mat& gray, const std::vector<cv::Point2f>& keypoints);
     static void warn(const std::string& message);

@@ -9,7 +9,7 @@ Ultralytics `BOTSORT` **không có ReID**: ByteTrack + Kalman XYWH + camera moti
 | [`botsort_config.cpp`](botsort_config.cpp) | `BoTSORTConfig::validate()`. Default ở [`include/mot/tracking/botsort_config.hpp`](../../../include/mot/tracking/botsort_config.hpp). |
 | [`../common/track.cpp`](../common/track.cpp) | `Track`: một tracklet (Kalman state, score, class EMA, vòng đời). |
 | [`../common/kalman_filter.cpp`](../common/kalman_filter.cpp) | `KalmanFilterXYWH`: state 8 chiều `(x, y, w, h, vx, vy, vw, vh)`. |
-| [`../common/gmc.cpp`](../common/gmc.cpp) | `GMC`: ước lượng chuyển động camera bằng sparse optical flow. |
+| [`../common/gmc.cpp`](../common/gmc.cpp) | `GMC`: ước lượng chuyển động camera bằng sparse optical flow hoặc keypoint học được (dpoint + matcher). |
 | [`../common/association.cpp`](../common/association.cpp) | `associate()`: cost IoU (+ fuse score) rồi Hungarian. |
 | [`../common/assignment.cpp`](../common/assignment.cpp) | `linearAssignment()`: Hungarian có ngưỡng cost. |
 | [`../common/track_pool.hpp`](../common/track_pool.hpp) | `jointTracks`, `subtractTracks`, `applyGMC`, `removeDuplicateTracks`. |
@@ -85,14 +85,21 @@ track bị mất.
    - Kalman predict ([kalman_filter.cpp:87-107](../common/kalman_filter.cpp#L87-L107)): `mean = F·mean`,
      `P = F·P·Fᵀ + Q`, với nhiễu `Q` tỉ lệ theo w/h hiện tại.
    - `unconfirmed` **không** được predict, giống Ultralytics.
-2. **GMC** ([dòng 65-69](botsort.cpp#L65-L69)), chỉ chạy khi `gmc_method == "sparseOptFlow"`:
-   - `gmc_.apply(frame)` ([gmc.cpp:62-158](../common/gmc.cpp#L62-L158)) chuyển frame sang ảnh xám và
-     thu nhỏ cố định 2× ([gmc.cpp:28-53](../common/gmc.cpp#L28-L53)). Sau đó lấy tối đa 400 góc bằng
-     `goodFeaturesToTrack` ([dòng 78](../common/gmc.cpp#L78)), theo dõi chúng từ frame trước bằng
-     Lucas-Kanade ([dòng 100](../common/gmc.cpp#L100)), rồi ước lượng affine 4 bậc tự do bằng
-     `estimateAffinePartial2D` + RANSAC ([dòng 115-133](../common/gmc.cpp#L115-L133)). Phần tịnh
-     tiến được nhân lại với hệ số downscale ([dòng 131-132](../common/gmc.cpp#L131-L132)). Frame đầu,
-     thiếu feature hoặc ước lượng lỗi đều trả về ma trận đơn vị (kèm warning).
+2. **GMC** ([dòng 65-69](botsort.cpp#L65-L69)), chạy khi `gmc_method != "none"`:
+   - `sparseOptFlow` ([gmc.cpp:165-228](../common/gmc.cpp#L165-L228)): chuyển frame sang ảnh xám và
+     thu nhỏ cố định 2× ([gmc.cpp:35-60](../common/gmc.cpp#L35-L60)). Sau đó lấy tối đa 400 góc bằng
+     `goodFeaturesToTrack` ([dòng 171](../common/gmc.cpp#L171)), theo dõi chúng từ frame trước bằng
+     Lucas-Kanade ([dòng 193](../common/gmc.cpp#L193)).
+   - `dpoint` ([gmc.cpp:112-163](../common/gmc.cpp#L112-L163)): ảnh xám được resize về input của model
+     (512×512, giá trị [0, 1]). `IKeypointGmcModel` chạy dpoint lấy keypoint + descriptor của frame hiện
+     tại rồi chạy matcher (mutual nearest neighbour, độ tương đồng > 0.75) với frame trước đã cache, nên
+     mỗi frame chỉ chạy dpoint một lần. Điểm match được đổi từ toạ độ 512×512 về toạ độ frame gốc
+     (căn tâm pixel như `cv::resize`). Backend: `OnnxRuntimeKeypointGmc` hoặc `TensorRTKeypointGmc`,
+     truyền vào qua `createTracker(config, model)`.
+   - Cả hai cùng ước lượng affine 4 bậc tự do bằng `estimateAffinePartial2D` + RANSAC trong
+     `estimateWarp` ([gmc.cpp:85-110](../common/gmc.cpp#L85-L110)). Với `sparseOptFlow`, phần tịnh tiến
+     được nhân lại với hệ số downscale. Frame đầu, ít hơn 5 điểm match hoặc ước lượng lỗi đều trả về
+     ma trận đơn vị (kèm warning).
    - `applyGMC` gọi `Track::applyWarp` ([track.cpp:79-97](../common/track.cpp#L79-L97)) →
      `warpXywhState` ([geometry.cpp:92-135](../common/geometry.cpp#L92-L135)). Tâm và vận tốc tâm
      được xoay theo `R`, kích thước và vận tốc kích thước được xoay theo `|R|` để w/h không đổi dấu,
@@ -226,7 +233,8 @@ Chuyển state: `markLost()` / `markRemoved()` ([track.cpp:128-134](../common/tr
 | `track_buffer` | 30 | Số frame giữ track Lost ([botsort.cpp:87](botsort.cpp#L87)) |
 | `match_thresh` | 0.80 | Ngưỡng cost của first association ([botsort.cpp:101](botsort.cpp#L101)) |
 | `fuse_score` | true | Fuse score vào cost IoU ở bước 4 và 6 ([botsort.cpp:101](botsort.cpp#L101), [174](botsort.cpp#L174)) |
-| `gmc_method` | `sparseOptFlow` | `sparseOptFlow` hoặc `none` ([botsort.cpp:65](botsort.cpp#L65)) |
+| `gmc_method` | `sparseOptFlow` | `sparseOptFlow`, `dpoint` hoặc `none` ([botsort.cpp:65](botsort.cpp#L65)) |
+| `gmc_dpoint_model`, `gmc_matcher_model` | rỗng | Model dpoint/matcher cho `dpoint` (`.onnx` → ONNX Runtime, `.engine` → TensorRT); app nạp chúng |
 | `class_ema_alpha` | 0.0 | EMA của vector class, 0 = theo detection mới nhất ([class_ema.cpp:33](../common/class_ema.cpp#L33)) |
 
 Các giá trị cố định trong code, giống Ultralytics: ngưỡng 0.5 của second association

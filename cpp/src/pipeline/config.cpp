@@ -85,7 +85,7 @@ std::filesystem::path resolve(const std::filesystem::path& directory, const std:
 void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTConfig& config) {
     checkKeys(node, {"track_high_thresh", "track_low_thresh", "new_track_thresh",
                      "track_buffer", "match_thresh", "fuse_score", "gmc_method",
-                     "class_ema_alpha"}, section);
+                     "gmc_dpoint_model", "gmc_matcher_model", "class_ema_alpha"}, section);
     readValue(node, "track_high_thresh", config.track_high_thresh);
     readValue(node, "track_low_thresh", config.track_low_thresh);
     readValue(node, "new_track_thresh", config.new_track_thresh);
@@ -93,6 +93,8 @@ void readTracker(const cv::FileNode& node, const std::string& section, BoTSORTCo
     readValue(node, "match_thresh", config.match_thresh);
     readValue(node, "fuse_score", config.fuse_score);
     readValue(node, "gmc_method", config.gmc_method);
+    readValue(node, "gmc_dpoint_model", config.gmc_dpoint_model);
+    readValue(node, "gmc_matcher_model", config.gmc_matcher_model);
     readValue(node, "class_ema_alpha", config.class_ema_alpha);
 }
 
@@ -100,7 +102,7 @@ void readTracker(const cv::FileNode& node, const std::string& section, TrackTrac
     checkKeys(node, {"track_high_thresh", "track_low_thresh", "new_track_thresh", "track_buffer",
                      "match_thresh", "lost_match_thr", "conf_weight", "angle_weight", "penalty_p",
                      "penalty_q", "reduce_step", "tai_thr", "min_track_len", "gmc_method",
-                     "class_ema_alpha"}, section);
+                     "gmc_dpoint_model", "gmc_matcher_model", "class_ema_alpha"}, section);
     readValue(node, "track_high_thresh", config.track_high_thresh);
     readValue(node, "track_low_thresh", config.track_low_thresh);
     readValue(node, "new_track_thresh", config.new_track_thresh);
@@ -115,6 +117,8 @@ void readTracker(const cv::FileNode& node, const std::string& section, TrackTrac
     readValue(node, "tai_thr", config.tai_thr);
     readValue(node, "min_track_len", config.min_track_len);
     readValue(node, "gmc_method", config.gmc_method);
+    readValue(node, "gmc_dpoint_model", config.gmc_dpoint_model);
+    readValue(node, "gmc_matcher_model", config.gmc_matcher_model);
     readValue(node, "class_ema_alpha", config.class_ema_alpha);
 }
 
@@ -263,6 +267,11 @@ PipelineConfig PipelineConfig::fromFile(const std::string& path) {
         if (!config.model_path.empty()) {
             config.model_path = resolve(directory, config.model_path).string();
         }
+        std::visit([&](auto& tracker) {
+            for (auto* model : {&tracker.gmc_dpoint_model, &tracker.gmc_matcher_model}) {
+                if (!model->empty()) *model = resolve(directory, *model).string();
+            }
+        }, config.tracker);
         return config;
     } catch (const std::exception& error) {
         throw std::runtime_error("Cannot load MOT config '" + path + "': " + error.what());

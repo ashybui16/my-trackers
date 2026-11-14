@@ -2,6 +2,7 @@
 
 #include "detection/yolo/postprocess.hpp"
 #include "detection/yolo/preprocess.hpp"
+#include "onnxruntime/ort_common.hpp"
 
 #include <onnxruntime_cxx_api.h>
 
@@ -9,33 +10,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <sstream>
 #include <stdexcept>
 #include <utility>
 
 namespace mot {
-namespace {
 
-std::string shapeString(const std::vector<std::int64_t>& shape) {
-    std::ostringstream stream;
-    stream << '[';
-    for (std::size_t index = 0; index < shape.size(); ++index) {
-        if (index != 0) {
-            stream << ',';
-        }
-        stream << shape[index];
-    }
-    stream << ']';
-    return stream.str();
-}
-
-// One Env shared by every detector in the process; it must outlive every session.
-Ort::Env& sharedEnv() {
-    static Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "mot");
-    return env;
-}
-
-}
+using detail::shapeString;
 
 struct OnnxRuntimeDetector::Impl {
     Ort::Session session{nullptr};
@@ -67,7 +47,7 @@ void OnnxRuntimeDetector::Impl::loadModel(const std::string& model_path, int int
     options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     options.SetIntraOpNumThreads(intra_op_threads);
     options.SetInterOpNumThreads(1);
-    session = Ort::Session(sharedEnv(), model_path.c_str(), options);
+    session = Ort::Session(detail::sharedOrtEnv(), model_path.c_str(), options);
 }
 
 void OnnxRuntimeDetector::Impl::initializeTensors(const DetectorConfig& config) {

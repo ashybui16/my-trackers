@@ -10,6 +10,10 @@ mot_add_test(tracktrack
     LIBS mot_tracking
     ARGS "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tracktrack_parity.json"
     LABELS "tracking;cpu")
+mot_add_test(gmc_dpoint
+    SOURCES tracking/test_gmc_dpoint.cpp
+    LIBS mot_tracking
+    LABELS "tracking;cpu")
 mot_add_test(tracker_contract
     SOURCES tracking/test_tracker_contract.cpp
     LIBS mot_tracking
@@ -43,6 +47,12 @@ if(MOT_BUILD_GPU_TESTS AND MOT_WITH_TENSORRT)
         LIBS mot_tensorrt mot_pipeline CUDA::cudart opencv_videoio
         LABELS "gpu"
         SKIP_RETURN_CODE 77)
+    # Set MOT_DPOINT_MODEL_PATH and MOT_MATCHER_MODEL_PATH to engines built for this GPU.
+    mot_add_test(keypoint_gmc_gpu
+        SOURCES tensorrt/test_keypoint_gmc_gpu.cpp
+        LIBS mot_tensorrt mot_tracking opencv_imgproc
+        LABELS "gpu"
+        SKIP_RETURN_CODE 77)
 endif()
 
 if(MOT_WITH_ONNXRUNTIME)
@@ -50,6 +60,12 @@ if(MOT_WITH_ONNXRUNTIME)
         SOURCES onnxruntime/test_inference_onnx.cpp
         LIBS mot_onnxruntime mot_pipeline opencv_videoio
         ARGS "${MOT_REPO_WEIGHTS}/26c1.onnx"
+        LABELS "onnxruntime;cpu"
+        SKIP_RETURN_CODE 77)
+    mot_add_test(keypoint_gmc_onnx
+        SOURCES onnxruntime/test_keypoint_gmc.cpp
+        LIBS mot_onnxruntime mot_tracking opencv_imgproc
+        ARGS "${MOT_REPO_WEIGHTS}/dpoint_jetson_static.onnx" "${MOT_REPO_WEIGHTS}/matcher_jetson_static.onnx"
         LABELS "onnxruntime;cpu"
         SKIP_RETURN_CODE 77)
 endif()

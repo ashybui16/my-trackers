@@ -99,6 +99,21 @@ tracker:
                tt.min_track_len == 2 && tt.gmc_method == "none" && tt.match_thresh == 0.7 &&
                tt.class_ema_alpha == 0.7,
                "tracktrack section");
+        const auto dpoint = load(R"(detector: {}
+tracker:
+  type: tracktrack
+  tracktrack: { gmc_method: dpoint, gmc_dpoint_model: "w/dpoint.onnx", gmc_matcher_model: "/abs/matcher.engine" }
+)");
+        const auto& dp = std::get<mot::TrackTrackConfig>(dpoint.tracker);
+        expect(dp.gmc_method == "dpoint" && dp.gmc_dpoint_model == (directory / "w/dpoint.onnx").string() &&
+               dp.gmc_matcher_model == "/abs/matcher.engine",
+               "dpoint GMC models resolve against the YAML directory");
+        expect(std::get<mot::BoTSORTConfig>(
+                   load("detector: {}\ntracker: { gmc_method: dpoint, gmc_dpoint_model: d.onnx }\n").tracker)
+                       .gmc_dpoint_model == (directory / "d.onnx").string(),
+               "legacy flat tracker accepts the dpoint model");
+        expect(std::get<mot::BoTSORTConfig>(load("detector: {}\ntracker: {}\n").tracker).gmc_dpoint_model.empty(),
+               "dpoint model path is optional");
         {
             std::ofstream names(directory / "names.yaml");
             names << "nc: 2\nnames:\n  0: cat\n  1: 'dog'\n";

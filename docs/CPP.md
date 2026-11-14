@@ -56,6 +56,47 @@ Tracks newly marked removed stay in the lost pool until the next frame's merge,
 so they can recover their ID if matched in that frame. Removed history retains
 the latest 1000 entries, including repeated references as in Ultralytics.
 
+### Learned GMC (`gmc_method: dpoint`)
+
+`dpoint` replaces optical flow with two small networks from `weights/`:
+
+| Model | Inputs | Outputs |
+| --- | --- | --- |
+| `dpoint_jetson_static.onnx` | `image` [1,1,512,512] FP32 gray in [0,1] (normalized inside) | `keypoints` [1,1024,2] (x,y in 512-grid pixels), `descriptors` [1,1024,64] (L2-normalized), `scores` [1,1024] |
+| `matcher_jetson_static.onnx` | `kpts1`, `descs1` (previous frame), `kpts2`, `descs2` (current frame) | `matched_kpts1`, `matched_kpts2` [1,1024,2], `valid_mask` [1,1024] |
+
+The matcher is mutual nearest neighbour on descriptor dot products with a fixed similarity
+threshold of 0.75 baked into the graph; dpoint zeroes keypoints with score <= 0.015, and these never
+match. Each frame runs dpoint once: the previous frame's keypoints and descriptors stay cached in
+the model (on the GPU for TensorRT). `GMC` resizes the gray frame to 512x512, maps the matches back
+to frame pixels (pixel centers aligned, so non-square frames are exact), and fits the same RANSAC
+partial affine as `sparseOptFlow` (identity below 5 matches).
+
+The library has no inference dependency: a tracker gets the model as an
+`IKeypointGmcModel` (`mot/tracking/keypoint_gmc.hpp`) through
+`createTracker(config, std::move(model))`. Backends are `mot::OnnxRuntimeKeypointGmc`
+(`mot/onnxruntime/keypoint_gmc.hpp`) and `mot::TensorRTKeypointGmc`
+(`mot/tensorrt/keypoint_gmc.hpp`). One model instance serves one tracker, because it is
+stateful. `mot_video` and `mot_benchmark` load the models from `gmc_dpoint_model` and
+`gmc_matcher_model` (YAML, relative to the config file; or `--gmc-dpoint` and `--gmc-matcher`).
+Both models must use the same backend, picked from the extensions as for the detector.
+
+TensorRT engines are built per GPU and TensorRT version. On Jetson, build FP16 engines and keep
+the layers listed in each model's `trt_fp32_layer_precisions` metadata in FP32:
+
+```bash
+for m in dpoint matcher; do
+  prec=$(strings -n 20 weights/${m}_jetson_static.onnx | grep -o 'FP32PREC=[^@]*' | head -1 | cut -d= -f2)
+  trtexec --onnx=weights/${m}_jetson_static.onnx --saveEngine=weights/${m}.engine \
+    --fp16 --precisionConstraints=obey --layerPrecisions="$prec"
+done
+```
+
+Leave out `--fp16` on GPUs without fast FP16 (Pascal). Measured on a GTX 1050 Ti with FP32
+engines and a 1280x720 drone clip (151 frames): `sparseOptFlow` took 10.3 ms per frame, dpoint
+6.9 ms (TensorRT) and 27.8 ms (ONNX Runtime CPU). The dpoint warp aligned frames better: mean absolute
+photometric residual after warping was 1.82 versus 2.81 for `sparseOptFlow` (about 6-9 without GMC).
+
 ## Detector contract
 
 Both detectors share the same contract and the same preprocessing and decode/NMS code
@@ -116,7 +157,9 @@ the top-level project. The tracking, tracker-contract, pipeline, configuration,
 annotator, postprocess and performance-regression tests are CPU-only. With ONNX
 Runtime, `mot_inference_onnx` (labels `onnxruntime;cpu`) runs `weights/26c1.onnx`
 (override with `MOT_ONNX_MODEL_PATH`; optional `MOT_VIDEO_PATH` frame source) and is
-skipped when the model is missing. To enable the separate TensorRT smoke test,
+skipped when the model is missing. `mot_keypoint_gmc_onnx` runs the dpoint GMC models from
+`weights/` (override with `MOT_DPOINT_MODEL_PATH` / `MOT_MATCHER_MODEL_PATH`). `mot_keypoint_gmc_gpu`
+(label `gpu`) runs the same checks on TensorRT engines given by those two variables. To enable the separate TensorRT smoke test,
 configure with `-DMOT_BUILD_GPU_TESTS=ON`, set `MOT_ENGINE_PATH` to a
 GPU-compatible engine, then run `ctest -L gpu`; the test is skipped when the
 environment variable is absent.
@@ -153,6 +196,7 @@ detector:
 tracker:
   type: botsort
   botsort: { track_high_thresh: 0.40, track_buffer: 90, ... }
+  # gmc_method: dpoint with gmc_dpoint_model / gmc_matcher_model enables learned GMC
 ```
 
 The older flat form (BoT-SORT keys directly under `tracker:` with no `type`) is

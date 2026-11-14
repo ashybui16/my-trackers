@@ -27,7 +27,11 @@ struct TrackTrackConfig {
     double tai_thr{0.55};           // IoU threshold of the track-aware NMS.
     int min_track_len{3};           // Hits before a New track is confirmed; 0 or 1 confirms at once.
 
-    std::string gmc_method{"sparseOptFlow"};
+    std::string gmc_method{"sparseOptFlow"};  // "sparseOptFlow", "dpoint" or "none".
+    // dpoint keypoint and matcher models (.onnx -> ONNX Runtime, .engine/.trt/.plan -> TensorRT).
+    // Apps load them into an IKeypointGmcModel passed to createTracker(); the library ignores the paths.
+    std::string gmc_dpoint_model;
+    std::string gmc_matcher_model;
     // EMA weight on a track's class history: v = a*v + (1-a)*detection_scores. 0 = latest detection.
     double class_ema_alpha{0.0};
 

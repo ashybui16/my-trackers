@@ -7,6 +7,7 @@
 #include "mot/onnxruntime/detector.hpp"
 #endif
 #include "mot/tracking/factory.hpp"
+#include "gmc_model_factory.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 
@@ -44,6 +45,7 @@ const char *kUsage =
     "  --model       overrides YAML model_path (.engine/.trt/.plan -> TensorRT, .onnx -> ONNX Runtime)\n"
     "  --warmup      untimed detector passes on the first frame before each repeat\n"
     "  --max-frames  per-sequence frame cap (0 = all)\n"
+    "GMC (including gmc_method: dpoint and its models) comes from the YAML tracker section.\n"
     "Writes the timing CSV to stdout and <output-dir>/timing.csv.\n";
 
 int parseInt(const std::string &value) {
@@ -223,7 +225,9 @@ cv::Mat readFrame(const fs::path &path) {
 }
 
 StageTimes runSequence(const Sequence &sequence, const mot::PipelineConfig &config, mot::IDetector &detector) {
-    const auto tracker = mot::createTracker(config.tracker);
+    // A dpoint GMC model is stateful, so each sequence gets its own (loaded outside the timed loop).
+    std::string gmc_backend;
+    const auto tracker = mot::createTracker(config.tracker, mot::apps::makeGmcModel(config.tracker, gmc_backend));
     const bool use_recovered = tracker->usesRecoveredDetections();
     std::vector<mot::Detection> recovered;
     StageTimes t;
